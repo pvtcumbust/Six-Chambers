@@ -1,9 +1,0 @@
-{
-  "name": "six-chambers",
-  "version": "1.0.0",
-  "description": "Six Chambers - 3D Russian-roulette game with online rooms",
-  "private": true,
-  "main": "server.js",
-  "scripts": { "start": "node server.js", "build": "python3 build.py" },
-  "engines": { "node": ">=18" }
-}
