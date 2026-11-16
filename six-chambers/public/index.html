@@ -1,0 +1,1412 @@
+<!doctype html>
+<html lang="en">
+<head>
+<title>Six Chambers</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0907">
+<meta name="description" content="Six Chambers - a first-person 3D Russian-roulette game for 2-4 players, with online rooms.">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 32 32%27%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%2714%27 fill=%27%23160f0d%27 stroke=%27%23b3261e%27 stroke-width=%272%27/%3E%3Ccircle cx=%2716%27 cy=%2716%27 r=%274%27 fill=%27%23b3261e%27/%3E%3C/svg%3E">
+<style>*,*::before,*::after{box-sizing:border-box}html,body{margin:0;min-height:100%}[hidden]{display:none!important}:root{color-scheme:light;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}img{max-width:100%}body{font:14px system-ui,sans-serif}</style>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Alfa+Slab+One&family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans:wght@400;600&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+<style>
+/* Layout: one dark column. Settings bar on top, then a large first-person 3D viewport that carries the whole HUD
+   (player chips, status, risk meter). The gun on the table is the control surface: trigger fires, cylinder spins. */
+:root {
+  --room: #050909;
+  --room-2: #0b1514;
+  --brass: #d1a84b;
+  --bone: #e9e2d0;
+  --bone-dim: #8f9c92;
+  --blood: #b3121a;
+  --ink: #050a0a;
+  --display: 'Alfa Slab One', Georgia, 'Times New Roman', serif;
+  --mono: 'IBM Plex Mono', ui-monospace, Menlo, Consolas, monospace;
+  --body: 'IBM Plex Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { min-height: 100%; }
+body {
+  background: var(--room);
+  background-image: radial-gradient(ellipse at 50% 0%, var(--room-2), var(--room) 60%);
+  color: var(--bone);
+  font-family: var(--body);
+  font-size: 16px;
+  line-height: 1.5;
+  padding-block: 20px 40px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+main { max-width: 960px; margin: 0 auto; display: flex; flex-direction: column; gap: 16px; }
+h1 { font-family: var(--display); font-weight: 400; font-size: clamp(2.2rem, 9vw, 3.2rem); line-height: 1; margin: 0; color: var(--brass); text-wrap: balance; }
+.sub { margin: 6px 0 0; color: var(--bone-dim); max-width: 60ch; }
+.bar { display: flex; flex-wrap: wrap; gap: 12px 18px; align-items: flex-end; }
+.bar .grow { flex: 1 1 0; }
+.group { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.label { font-family: var(--mono); font-size: 0.7rem; letter-spacing: 0.14em; text-transform: uppercase; color: var(--bone-dim); }
+.seg { display: inline-flex; border: 1px solid var(--brass); border-radius: 4px; overflow: hidden; }
+.seg button { font: 600 0.85rem var(--mono); background: transparent; color: var(--bone); border: 0; border-right: 1px solid color-mix(in srgb, var(--brass) 45%, transparent); padding: 8px 14px; min-height: 40px; cursor: pointer; }
+.seg button:last-child { border-right: 0; }
+.seg button[aria-pressed="true"] { background: var(--brass); color: var(--ink); }
+button:focus-visible { outline: 2px solid var(--bone); outline-offset: 2px; }
+.mute { font: 600 0.8rem var(--mono); background: transparent; color: var(--bone-dim); border: 1px solid color-mix(in srgb, var(--bone-dim) 50%, transparent); border-radius: 4px; padding: 8px 12px; min-height: 40px; cursor: pointer; }
+
+.vp { position: relative; width: 100%; aspect-ratio: 16 / 10; max-height: 80vh; background: #000; border: 1px solid color-mix(in srgb, var(--bone-dim) 25%, transparent); border-radius: 4px; overflow: hidden; touch-action: manipulation; user-select: none; -webkit-user-select: none; }
+@media (max-width: 560px) { .vp { aspect-ratio: 4 / 5; max-height: 72vh; } }
+.vp canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.fx { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+#flashfx { background: #fff; opacity: 0; }
+.splat { position: absolute; border-radius: 48% 52% 55% 45%; background: radial-gradient(circle at 40% 35%, rgba(176,16,24,.96), rgba(104,6,12,.93) 55%, rgba(70,4,9,0) 74%); transition: transform 7s ease-in, opacity 3s ease 5s; }
+.fail { padding: 24px; color: var(--bone-dim); }
+.vp.shake { animation: shake 0.5s; }
+@keyframes shake { 0%,100% { transform: translate(0); } 12% { transform: translate(-6px, 3px); } 28% { transform: translate(5px,-4px); } 44% { transform: translate(-4px, 2px); } 60% { transform: translate(3px,-2px); } 80% { transform: translate(-1px, 1px); } }
+
+.hud-top { position: absolute; left: 0; right: 0; top: 0; padding: 8px 52px; display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; pointer-events: none; }
+.chip { min-width: 84px; padding: 4px 10px; border: 1px solid rgba(233,226,208,.28); border-radius: 4px; background: rgba(5,9,9,.62); display: flex; flex-direction: column; transition: border-color .3s; }
+.chip .cn { font-family: var(--display); font-size: .85rem; color: var(--bone); line-height: 1.25; }
+.chip .ct { font: .62rem var(--mono); letter-spacing: .12em; text-transform: uppercase; color: var(--bone-dim); min-height: 1em; }
+.chip.active { border-color: var(--brass); }
+.chip.active .ct { color: var(--brass); }
+.chip.dead { border-color: var(--blood); opacity: .75; }
+.chip.dead .ct { color: var(--blood); }
+.chip.dead .cn { text-decoration: line-through; }
+.hud-bottom { position: absolute; left: 0; right: 0; bottom: 0; padding: 34px 14px 10px; background: linear-gradient(rgba(0,0,0,0), rgba(0,0,0,.8)); display: flex; flex-direction: column; gap: 8px; pointer-events: none; }
+.status { text-align: center; display: flex; flex-direction: column; gap: 2px; }
+.status .big { font-family: var(--display); font-size: clamp(1.2rem, 5vw, 1.8rem); line-height: 1.1; text-wrap: balance; }
+.status .big.bad { color: var(--blood); }
+.status .big.good { color: var(--brass); }
+.status .big.tense { color: var(--bone); }
+.status .small { color: var(--bone-dim); font-size: 0.9rem; min-height: 1.4em; }
+.risk { display: flex; flex-direction: column; gap: 4px; max-width: 420px; width: 100%; margin: 0 auto; }
+.risk-head { display: flex; justify-content: space-between; gap: 8px; font-family: var(--mono); font-size: 0.75rem; }
+.track { height: 6px; background: var(--ink); border: 1px solid color-mix(in srgb, var(--brass) 50%, transparent); border-radius: 2px; overflow: hidden; }
+.fill { height: 100%; width: 0; background: var(--brass); transition: width 0.4s, background 0.4s; }
+.fill.hot { background: var(--blood); }
+.tip { position: absolute; left: 0; top: 0; pointer-events: none; font: 600 .72rem var(--mono); letter-spacing: .1em; text-transform: uppercase; color: var(--ink); background: var(--brass); padding: 4px 8px; border-radius: 3px; transform: translate(14px, -135%); opacity: 0; transition: opacity .12s; white-space: nowrap; }
+.tip.on { opacity: 1; }
+.endcard { position: absolute; left: 50%; top: 16%; transform: translateX(-50%); width: min(86%, 420px); background: rgba(5,9,9,.82); border: 1px solid var(--brass); border-radius: 4px; padding: 16px; display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; animation: fadein .6s ease 1.8s both; }
+.endcard[hidden] { display: none; }
+.endcard h2 { margin: 0; font-family: var(--display); font-weight: 400; font-size: clamp(1.4rem, 6vw, 2rem); color: var(--brass); line-height: 1.1; text-wrap: balance; }
+.endcard p { margin: 0; color: var(--bone-dim); font-size: .9rem; }
+@keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+.btn { font: 600 0.95rem var(--mono); letter-spacing: 0.04em; border-radius: 4px; padding: 12px 18px; min-height: 48px; cursor: pointer; border: 1px solid var(--brass); background: var(--brass); color: var(--ink); }
+.btn.ghost { background: rgba(5,9,9,.6); color: var(--bone); min-height: 38px; padding: 6px 12px; font-size: .8rem; }
+.btn:hover { filter: brightness(1.12); }
+.ff { position: absolute; right: 8px; top: 62px; }
+.ff[hidden] { display: none; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.toolbar { display: flex; gap: 10px; align-items: center; }
+.toolbar .grow { flex: 1; }
+.vp:not([data-phase="game"]) .hud-top, .vp:not([data-phase="game"]) .hud-bottom, .vp:not([data-phase="game"]) .tip, .vp:not([data-phase="game"]) .ff, .vp:not([data-phase="game"]) .endcard { display: none; }
+.screen { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; padding: 16px; text-align: center; background: radial-gradient(ellipse at center, rgba(0,0,0,0) 35%, rgba(0,0,0,.6)); }
+.screen[hidden] { display: none; }
+.screen.menu { justify-content: space-between; padding-block: clamp(20px, 7%, 48px); }
+.mtitle { display: flex; flex-direction: column; gap: 6px; align-items: center; }
+.mtitle h2 { margin: 0; font-family: var(--display); font-weight: 400; font-size: clamp(2.6rem, 11vw, 5rem); line-height: 1; color: var(--brass); text-shadow: 0 0 28px rgba(209,168,75,.35), 0 2px 0 #000; text-wrap: balance; }
+.mtitle p { margin: 0; color: var(--bone); opacity: .85; font-size: clamp(.9rem, 2.4vw, 1.1rem); text-shadow: 0 1px 6px #000; }
+.mact { display: flex; flex-direction: column; gap: 10px; align-items: center; }
+.btn.big { font-size: 1.15rem; padding: 14px 46px; min-height: 56px; letter-spacing: .12em; text-transform: uppercase; }
+.fine { font: .7rem var(--mono); letter-spacing: .08em; color: var(--bone-dim); text-shadow: 0 1px 4px #000; }
+.panel { width: min(92%, 400px); background: rgba(5,9,9,.86); border: 1px solid var(--brass); border-radius: 4px; padding: 18px; display: flex; flex-direction: column; gap: 14px; text-align: left; max-height: 100%; overflow: auto; }
+.panel h3 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 1.5rem; color: var(--brass); }
+.panel .seg { display: flex; }
+.panel .seg button { flex: 1; }
+.prow { display: flex; gap: 10px; justify-content: space-between; }
+.prow .btn:last-child { flex: 1; }
+.mact { flex-direction: row; flex-wrap: wrap; justify-content: center; }
+.mact .fine { flex-basis: 100%; }
+.inp { font: 600 1rem var(--mono); background: var(--ink); color: var(--bone); border: 1px solid color-mix(in srgb, var(--brass) 60%, transparent); border-radius: 4px; padding: 10px 12px; min-height: 44px; width: 100%; min-width: 0; }
+.inp.code { text-transform: uppercase; letter-spacing: .3em; text-align: center; }
+.inp:focus-visible { outline: 2px solid var(--brass); outline-offset: 1px; }
+.codebox { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.codebox b { font: 600 2.2rem var(--mono); letter-spacing: .3em; color: var(--brass); }
+.roster { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.roster li { padding: 8px 12px; border: 1px solid color-mix(in srgb, var(--bone-dim) 35%, transparent); border-radius: 4px; font: 600 .9rem var(--mono); }
+.roster li.open { color: var(--bone-dim); border-style: dashed; font-weight: 400; }
+#endwait { margin: 0; color: var(--bone-dim); font-size: .85rem; }
+#endwait[hidden] { display: none; }
+
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(110px, 1fr)); gap: 12px; border-top: 1px solid color-mix(in srgb, var(--brass) 30%, transparent); padding-top: 16px; }
+.stat { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.stat b { font-family: var(--mono); font-size: 1.5rem; font-weight: 600; font-variant-numeric: tabular-nums; }
+.log { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; font-family: var(--mono); font-size: 0.82rem; color: var(--bone-dim); min-height: 7.5em; }
+.log li:first-child { color: var(--bone); }
+.note { font-size: 0.8rem; color: var(--bone-dim); margin: 0; max-width: 70ch; }
+@media (prefers-reduced-motion: reduce) { .vp.shake { animation: none; } .endcard { animation: none; } }
+
+.bcast { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); z-index: 30; max-width: min(92%, 560px); background: rgba(5,9,9,.92); border: 1px solid var(--brass); color: var(--bone); font: 600 .9rem var(--mono); letter-spacing: .03em; padding: 10px 16px; border-radius: 4px; text-align: center; box-shadow: 0 6px 24px rgba(0,0,0,.6); }
+.adm { position: absolute; top: 52px; right: 8px; bottom: 8px; width: min(340px, calc(100% - 16px)); z-index: 40; overflow-y: auto; background: rgba(5,9,9,.94); border: 1px solid var(--brass); border-radius: 6px; padding: 12px; font: .78rem var(--mono); color: var(--bone); display: flex; flex-direction: column; gap: 10px; }
+.adm h3 { margin: 0; font: 400 1rem var(--display); color: var(--brass); }
+.adm .arow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.adm .alab { color: var(--bone-dim); letter-spacing: .08em; text-transform: uppercase; font-size: .66rem; width: 100%; }
+.adm input, .adm select { font: inherit; background: #0b1212; color: var(--bone); border: 1px solid color-mix(in srgb, var(--brass) 55%, transparent); border-radius: 4px; padding: 6px 8px; min-width: 0; flex: 1 1 100px; }
+.adm button { font: 600 .74rem var(--mono); background: transparent; color: var(--bone); border: 1px solid var(--brass); border-radius: 4px; padding: 7px 10px; cursor: pointer; }
+.adm button:hover { background: var(--brass); color: var(--ink); }
+.adm button.danger { border-color: var(--blood); } .adm button.danger:hover { background: var(--blood); color: #fff; }
+.adm .aout { min-height: 1.2em; color: var(--brass); word-break: break-word; }
+
+.fsbtn { position: absolute; top: 8px; right: 8px; z-index: 35; width: 38px; height: 38px; padding: 0; display: grid; place-items: center; background: rgba(5,9,9,.6); color: var(--bone); border: 1px solid color-mix(in srgb, var(--bone-dim) 60%, transparent); border-radius: 4px; cursor: pointer; }
+.fsbtn:hover { border-color: var(--brass); color: var(--brass); }
+.fsbtn svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.fsbtn .ico-out { display: none; } .vp.is-fs .fsbtn .ico-in { display: none; } .vp.is-fs .fsbtn .ico-out { display: block; }
+.vp:fullscreen, .vp:-webkit-full-screen { width: 100vw; height: 100vh; max-height: none; aspect-ratio: auto; border: 0; border-radius: 0; }
+.vp.pfs { position: fixed; inset: 0; z-index: 100; width: 100%; height: 100%; max-height: none; aspect-ratio: auto; border: 0; border-radius: 0; }
+</style>
+
+</head>
+<body>
+<main id="main">
+  <h1 class="sr">Six Chambers</h1>
+
+  <div class="vp" id="vp" data-phase="menu">
+    <canvas id="gl" aria-label="First-person 3D view of a dark room: a round table with a revolver on it, other players seated around it under one hanging lamp. Click the trigger to fire or the cylinder to spin."></canvas>
+    <div class="fx" id="bloodfx"></div>
+    <div class="fx" id="flashfx"></div>
+    <div class="hud-top" id="chips"></div>
+    <button class="btn ghost ff" id="ff" type="button" hidden>Fast-forward</button>
+    <div class="tip" id="tip"></div>
+    <button class="fsbtn" id="fs" type="button" aria-label="Full screen" title="Full screen (F)"><svg class="ico-in" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg><svg class="ico-out" viewBox="0 0 24 24"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg></button>
+    <div class="bcast" id="bcast" role="status" aria-live="polite" hidden></div>
+    <div class="adm" id="adm" hidden>
+      <h3>Admin</h3>
+      <div id="adm-login" class="arow">
+        <input id="adm-tok" type="password" placeholder="Admin token" autocomplete="off">
+        <button id="adm-go" type="button">Unlock</button>
+      </div>
+      <div id="adm-main" hidden style="display:flex;flex-direction:column;gap:10px">
+        <div class="arow"><span class="alab">Target room</span>
+          <select id="adm-room"><option value="">This game</option></select><button id="adm-ref" type="button">Rooms</button></div>
+        <div class="arow"><span class="alab">Rig next pull (secret)</span>
+          <select id="adm-rseat"></select><button id="adm-safe" type="button">Safe</button><button id="adm-live" type="button">Live</button><button id="adm-peek" type="button">Peek</button></div>
+        <div class="arow"><span class="alab">Bullets (reloads now, visible)</span><span class="seg" id="adm-n"></span></div>
+        <div class="arow"><span class="alab">Bots</span><button id="adm-bot" type="button">Add bot</button></div>
+        <div class="arow"><span class="alab">Shotgun</span><select id="adm-tseat"></select><button id="adm-shot" class="danger" type="button">Fire</button></div>
+        <div class="arow"><span class="alab">Broadcast to everyone on the site</span><input id="adm-bc" maxlength="200" placeholder="Message"><button id="adm-send" type="button">Send</button></div>
+      </div>
+      <div class="aout" id="adm-out" role="status"></div>
+      <div class="arow"><button id="adm-out-x" type="button">Close</button><button id="adm-lo" type="button">Log out</button></div>
+    </div>
+    <div class="endcard" id="endcard" hidden>
+      <h2 id="end-title"></h2>
+      <p id="end-sub"></p>
+      <button class="btn" id="newmatch" type="button">New match</button>
+      <button class="btn ghost" id="endmenu" type="button">Main menu</button>
+      <p id="endwait" hidden>Waiting for the host to start a rematch.</p>
+    </div>
+    <div class="screen menu" id="menu">
+      <div class="mtitle">
+        <h2>Six Chambers</h2>
+        <p>One revolver. One round table. One lamp.</p>
+      </div>
+      <div class="mact">
+        <button class="btn big" id="play" type="button">Play</button>
+        <button class="btn big ghost" id="online" type="button">Play online</button>
+        <span class="fine">Fictional game with stylised low-poly violence.</span>
+      </div>
+    </div>
+    <div class="screen" id="onl" hidden>
+      <div class="panel">
+        <h3>Play online</h3>
+        <div class="group">
+          <label class="label" for="nick">Your name</label>
+          <input class="inp" id="nick" maxlength="14" placeholder="Player" autocomplete="off">
+        </div>
+        <button class="btn" id="hostbtn" type="button">Host a game</button>
+        <div class="group">
+          <label class="label" for="codein">Or join with a room code</label>
+          <div class="prow">
+            <input class="inp code" id="codein" maxlength="4" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false">
+            <button class="btn" id="joinbtn" type="button">Join</button>
+          </div>
+        </div>
+        <p class="fine" id="onmsg" role="status"></p>
+        <p class="fine">Share the room code with friends - they open this same site and join with it.</p>
+        <div class="prow"><button class="btn ghost" id="onback" type="button">Back</button></div>
+      </div>
+    </div>
+    <div class="screen" id="lobby" hidden>
+      <div class="panel">
+        <h3>Lobby</h3>
+        <div class="codebox">
+          <div class="group"><span class="label">Room code</span><b id="lcode">----</b></div>
+          <button class="btn ghost" id="copycode" type="button">Copy</button>
+        </div>
+        <ul class="roster" id="roster"></ul>
+        <div id="hostctl" class="group" style="gap:12px">
+          <div class="group"><span class="label" id="lbl-lp">Seats at the table</span><div class="seg" role="group" aria-labelledby="lbl-lp" id="lpseg"></div></div>
+          <div class="group"><span class="label" id="lbl-ln">Bullets in the cylinder</span><div class="seg" role="group" aria-labelledby="lbl-ln" id="lnseg"></div></div>
+        </div>
+        <p class="fine" id="lmsg" role="status"></p>
+        <div class="prow"><button class="btn ghost" id="lleave" type="button">Leave</button><button class="btn" id="lstart" type="button">Start match</button></div>
+      </div>
+    </div>
+    <div class="screen" id="setup" hidden>
+      <div class="panel">
+        <h3>New match</h3>
+        <div class="group">
+          <span class="label" id="lbl-p">Players</span>
+          <div class="seg" role="group" aria-labelledby="lbl-p" id="pseg"></div>
+        </div>
+        <div class="group">
+          <span class="label" id="lbl-n">Bullets in the cylinder</span>
+          <div class="seg" role="group" aria-labelledby="lbl-n" id="nseg"></div>
+        </div>
+        <div class="group">
+          <span class="label" id="lbl-opp">Opponents</span>
+          <div class="seg" role="group" aria-labelledby="lbl-opp" id="oseg"></div>
+        </div>
+        <div class="prow">
+          <button class="btn ghost" id="back" type="button">Back</button>
+          <button class="btn" id="start" type="button">Start match</button>
+        </div>
+      </div>
+    </div>
+    <div class="hud-bottom">
+      <div class="status" id="statusbox" aria-live="polite">
+        <div class="big tense" id="st-big">Ready.</div>
+        <div class="small" id="st-small"></div>
+      </div>
+      <div class="risk">
+        <div class="risk-head"><span id="risk-text">Risk on next pull</span><span id="risk-pct">0%</span></div>
+        <div class="track"><div class="fill" id="risk-fill"></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="toolbar">
+    <button class="mute" id="tomenu" type="button" hidden>Main menu</button>
+    <span class="grow"></span>
+    <button class="mute" id="mute" type="button" aria-pressed="false">Sound on</button>
+  </div>
+
+  <div id="after" hidden style="display:flex;flex-direction:column;gap:16px">
+    <section class="stats" aria-label="Scores" id="stats"></section>
+    <section aria-label="Game log"><span class="label">Log</span><ul class="log" id="log"></ul></section>
+    <p class="note" id="rules"></p>
+  </div>
+</main>
+
+<script src="socket-room.js"></script>
+<script>
+(function () {
+  'use strict';
+  var $ = function (id) { return document.getElementById(id); };
+  var fast = false;
+  var sleep = function (ms) { return new Promise(function (r) { setTimeout(r, fast ? ms / 5 : ms); }); };
+  var rand = function (a, b) { return a + Math.random() * (b - a); };
+  var clamp = function (v, a, b) { return Math.max(a, Math.min(b, v)); };
+  var ease = function (p) { return p < 0.5 ? 4 * p * p * p : 1 - Math.pow(-2 * p + 2, 3) / 2; };
+  var REDUCED = false;
+  try { REDUCED = window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) {}
+
+  var vp = $('vp');
+  if (!window.THREE) { vp.innerHTML = '<p class="fail">The 3D engine could not load. Check your connection and reload the page.</p>'; return; }
+  var T = THREE, renderer;
+  try { renderer = new T.WebGLRenderer({ canvas: $('gl'), antialias: true }); }
+  catch (e) { vp.innerHTML = '<p class="fail">This browser could not start WebGL, which the 3D scene needs.</p>'; return; }
+  renderer.shadowMap.enabled = true; renderer.shadowMap.type = T.PCFSoftShadowMap; renderer.setClearColor(0x020405, 1);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+
+  var scene = new T.Scene(); scene.fog = new T.FogExp2(0x020405, 0.1);
+  var camera = new T.PerspectiveCamera(62, 1.6, 0.05, 40); scene.add(camera);
+
+  var R_SEAT = 1.1, TR = 0.76, TOP = 0.9;
+
+  /* ---------- helpers ---------- */
+  function mat(c, r, m, extra) { var o = { color: c, roughness: r == null ? 0.85 : r, metalness: m || 0 }; if (extra) for (var k in extra) o[k] = extra[k]; return new T.MeshStandardMaterial(o); }
+  function box(w, h, d, m, x, y, z, parent, cast) { var me = new T.Mesh(new T.BoxGeometry(w, h, d), m); me.position.set(x, y, z); me.castShadow = cast !== false; me.receiveShadow = true; (parent || scene).add(me); return me; }
+  var UP = new T.Vector3(0, 1, 0), DOWN = new T.Vector3(0, -1, 0), _d = new T.Vector3(), _q = new T.Quaternion();
+  function place(mesh, a, b, r) { _d.subVectors(b, a); var len = _d.length() || 0.001; mesh.position.copy(a).addScaledVector(_d, 0.5); mesh.scale.set(r, len, r); mesh.quaternion.setFromUnitVectors(UP, _d.multiplyScalar(1 / len)); }
+  function V(x, y, z) { return new T.Vector3(x, y, z); }
+
+  /* ---------- room ---------- */
+  var wallM = mat(0x16211f, 0.95, 0, { side: T.DoubleSide }), floorM = mat(0x1b130e, 0.8, 0, { side: T.DoubleSide });
+  function plane(w, h, m, x, y, z, rx, ry) { var p = new T.Mesh(new T.PlaneGeometry(w, h), m); p.position.set(x, y, z); p.rotation.set(rx || 0, ry || 0, 0); p.receiveShadow = true; scene.add(p); return p; }
+  plane(9, 10, floorM, 0, 0, 0, -Math.PI / 2, 0);
+  plane(9, 3.4, wallM, 0, 1.7, -5, 0, 0);
+  plane(9, 3.4, wallM, 0, 1.7, 5, 0, Math.PI);
+  plane(10, 3.4, wallM, -4.5, 1.7, 0, 0, Math.PI / 2);
+  plane(10, 3.4, wallM, 4.5, 1.7, 0, 0, -Math.PI / 2);
+  plane(9, 10, wallM, 0, 3.4, 0, Math.PI / 2, 0);
+  // round table, top surface at y = 0.9
+  var wood = mat(0x2b1b10, 0.6);
+  var tTop = new T.Mesh(new T.CylinderGeometry(TR, TR, 0.06, 40), wood); tTop.position.y = TOP - 0.03; tTop.castShadow = true; tTop.receiveShadow = true; scene.add(tTop);
+  var tPed = new T.Mesh(new T.CylinderGeometry(0.09, 0.12, 0.84, 14), wood); tPed.position.y = 0.42; tPed.castShadow = true; scene.add(tPed);
+  var tBase = new T.Mesh(new T.CylinderGeometry(0.36, 0.4, 0.04, 24), wood); tBase.position.y = 0.02; tBase.receiveShadow = true; scene.add(tBase);
+  var felt = new T.Mesh(new T.CircleGeometry(TR - 0.1, 40), mat(0x123828, 1)); felt.rotation.x = -Math.PI / 2; felt.position.y = TOP + 0.001; felt.receiveShadow = true; scene.add(felt);
+
+  /* ---------- lamp ---------- */
+  var lamp = new T.Group(); lamp.position.set(0, 3.4, 0); scene.add(lamp);
+  var cord = new T.Mesh(new T.CylinderGeometry(0.008, 0.008, 1.0, 6), mat(0x0a0a0a)); cord.position.y = -0.5; lamp.add(cord);
+  var shade = new T.Mesh(new T.ConeGeometry(0.32, 0.22, 20, 1, true), mat(0x0c0c0c, 0.6, 0.4, { side: T.DoubleSide })); shade.position.y = -1.08; lamp.add(shade);
+  var bulb = new T.Mesh(new T.SphereGeometry(0.05, 10, 8), new T.MeshBasicMaterial({ color: 0xffe2b0 })); bulb.position.y = -1.17; lamp.add(bulb);
+  var spot = new T.SpotLight(0xffc686, 2.6, 14, 0.85, 0.75, 1.3);
+  spot.position.set(0, -1.17, 0); spot.castShadow = true; spot.shadow.mapSize.set(1024, 1024); spot.shadow.camera.near = 0.3; spot.shadow.camera.far = 10; spot.shadow.bias = -0.0006;
+  var spotT = new T.Object3D(); spotT.position.set(0, -5, 0); lamp.add(spotT); spot.target = spotT; lamp.add(spot);
+  scene.add(new T.AmbientLight(0x1b2a36, 0.6));
+  var muzzle = new T.PointLight(0xffa860, 0, 6, 1.6); scene.add(muzzle);
+
+  /* ---------- gun (clickable) ---------- */
+  var GUN_SCALE_TABLE = 1.25;
+  var gun = new T.Group(); scene.add(gun);
+  var gunM = mat(0x2d363a, 0.35, 0.85);
+  var trigM = mat(0x3a4448, 0.3, 0.9, { emissive: 0xd1a84b, emissiveIntensity: 0 });
+  var cylM = mat(0x2d363a, 0.35, 0.85, { emissive: 0xd1a84b, emissiveIntensity: 0 });
+  function gpart(w, h, d, x, y, z, rx, m) { var me = new T.Mesh(new T.BoxGeometry(w, h, d), m || gunM); me.position.set(x, y, z); if (rx) me.rotation.x = rx; me.castShadow = true; gun.add(me); return me; }
+  gpart(0.03, 0.03, 0.2, 0, 0, 0.1);               // barrel
+  gpart(0.04, 0.065, 0.13, 0, -0.005, 0.265);      // frame
+  gpart(0.036, 0.11, 0.05, 0, -0.085, 0.33, 0.35); // grip
+  gpart(0.012, 0.03, 0.025, 0, 0.04, 0.33);        // hammer
+  var trigMesh = gpart(0.01, 0.034, 0.012, 0, -0.052, 0.262, 0.25, trigM);
+  gpart(0.008, 0.006, 0.075, 0, -0.07, 0.25, 0, trigM);   // trigger guard bottom
+  gpart(0.008, 0.03, 0.007, 0, -0.054, 0.21, 0, trigM);   // trigger guard front
+  var gunCyl = new T.Group(); gunCyl.position.set(0, -0.005, 0.2); gun.add(gunCyl);
+  var cm = new T.Mesh(new T.CylinderGeometry(0.036, 0.036, 0.07, 12), cylM); cm.rotation.x = Math.PI / 2; cm.castShadow = true; gunCyl.add(cm);
+  for (var gk = 0; gk < 6; gk++) { var dot = new T.Mesh(new T.CylinderGeometry(0.008, 0.008, 0.072, 6), mat(0x050505)); dot.rotation.x = Math.PI / 2; dot.position.set(Math.cos(gk * Math.PI / 3) * 0.022, Math.sin(gk * Math.PI / 3) * 0.022, 0); gunCyl.add(dot); }
+  // invisible, generous hit areas
+  var proxyM = new T.MeshBasicMaterial({ transparent: true, opacity: 0, depthWrite: false });
+  var trigProxy = new T.Mesh(new T.BoxGeometry(0.075, 0.13, 0.075), proxyM); trigProxy.position.set(0, -0.05, 0.278); trigProxy.userData.kind = 'trig'; gun.add(trigProxy);
+  var cylProxy = new T.Mesh(new T.CylinderGeometry(0.052, 0.052, 0.09, 12), proxyM); cylProxy.rotation.x = Math.PI / 2; cylProxy.position.set(0, -0.005, 0.2); cylProxy.userData.kind = 'cyl'; gun.add(cylProxy);
+
+  var qView = new T.Quaternion().setFromEuler(new T.Euler(0.1, Math.PI / 2, 0));
+  var qFig = new T.Quaternion().setFromEuler(new T.Euler(0, Math.PI / 2, 0));
+  var skinView = mat(0x8c6c5a, 0.7);
+  var viewArm = new T.Group(); camera.add(viewArm); viewArm.visible = false;
+  var vHand = new T.Mesh(new T.SphereGeometry(0.05, 8, 6), skinView); vHand.position.set(0.5, -0.17, -0.5); viewArm.add(vHand);
+  var vSleeve = new T.Mesh(new T.CylinderGeometry(1, 1, 1, 8), mat(0x1f2e38, 0.9)); viewArm.add(vSleeve);
+  place(vSleeve, V(0.5, -0.17, -0.5), V(0.78, -0.85, -0.3), 0.06);
+
+  /* ---------- figures (4 seats, N in play) ---------- */
+  var CLOTH = [0x1f2e38, 0x35201f, 0x23301f, 0x31291a], SKIN = [0x8c6c5a, 0xb08968, 0x6b4a3a, 0xc29a7e];
+  function buildHat() {
+    var g = new T.Group(), m = mat(0x0a0d0e, 0.8);
+    var brim = new T.Mesh(new T.CylinderGeometry(0.21, 0.21, 0.014, 18), m); brim.castShadow = true; g.add(brim);
+    var crown = new T.Mesh(new T.CylinderGeometry(0.115, 0.125, 0.13, 14), m); crown.position.y = 0.07; crown.castShadow = true; g.add(crown);
+    return g;
+  }
+  function makeFigure(i) {
+    var f = { idx: i, in: false, theta: 0, dead: false, aim: 0, aimT: 0, lean: 0, leanT: 0, deadAt: 0, spurt: null, hat: false, tablePool: null, floorPool: null, slideP: 1, slideT: 0, sliding: false };
+    var skin = mat(SKIN[i], 0.7), cloth = mat(CLOTH[i], 0.9), chair = mat(0x120c08, 0.8);
+    var root = new T.Group(); scene.add(root); f.root = root;
+    box(0.5, 0.05, 0.5, chair, 0, 0.475, 0.02, root); box(0.5, 0.55, 0.05, chair, 0, 0.78, 0.27, root);
+    [[-0.22, -0.2], [0.22, -0.2], [-0.22, 0.24], [0.22, 0.24]].forEach(function (p) { box(0.04, 0.45, 0.04, chair, p[0], 0.225, p[1], root); });
+    [-0.12, 0.12].forEach(function (x) { box(0.15, 0.15, 0.46, cloth, x, 0.55, -0.2, root); box(0.13, 0.5, 0.13, cloth, x, 0.27, -0.43, root); box(0.13, 0.07, 0.22, chair, x, 0.035, -0.5, root); });
+    var torso = new T.Group(); torso.position.set(0, 0.5, 0.02); root.add(torso); f.torso = torso;
+    box(0.5, 0.62, 0.27, cloth, 0, 0.31, 0, torso);
+    var neck = new T.Mesh(new T.CylinderGeometry(0.055, 0.06, 0.12, 8), skin); neck.position.y = 0.66; neck.castShadow = true; torso.add(neck);
+    var stump = new T.Mesh(new T.CylinderGeometry(0.058, 0.062, 0.03, 8), mat(0x6a0a10, 0.3, 0, { emissive: 0x200205 })); stump.position.y = 0.72; stump.visible = false; torso.add(stump); f.stump = stump;
+    var head = new T.Group(); head.position.set(0, 0.7, 0); torso.add(head); f.head = head;
+    var skull = new T.Mesh(new T.SphereGeometry(0.13, 14, 12), skin); skull.position.set(0, 0.13, 0); skull.scale.set(1, 1.12, 1.02); skull.castShadow = true; head.add(skull);
+    box(0.03, 0.045, 0.05, skin, 0, 0.115, -0.13, head);
+    [-0.045, 0.045].forEach(function (x) { var e = new T.Mesh(new T.SphereGeometry(0.014, 6, 6), mat(0x050505)); e.position.set(x, 0.15, -0.118); head.add(e); });
+    var hat = buildHat(); hat.position.set(0, 0.23, 0); head.add(hat); hat.visible = false; f.hatG = hat;
+    function limb(m) { var me = new T.Mesh(new T.CylinderGeometry(1, 1, 1, 8), m); me.castShadow = true; scene.add(me); return me; }
+    f.arms = { uR: limb(cloth), fR: limb(cloth), uL: limb(cloth), fL: limb(cloth) };
+    f.hands = { R: new T.Mesh(new T.SphereGeometry(0.045, 8, 6), skin), L: new T.Mesh(new T.SphereGeometry(0.045, 8, 6), skin) };
+    scene.add(f.hands.R); scene.add(f.hands.L);
+    return f;
+  }
+  var fig = [makeFigure(0), makeFigure(1), makeFigure(2), makeFigure(3)];
+  function setFigVisible(f, v) { f.root.visible = v; for (var k in f.arms) f.arms[k].visible = v; f.hands.R.visible = v; f.hands.L.visible = v; }
+  function limbs(f, dt) {
+    f.aim += (f.aimT - f.aim) * (1 - Math.exp(-dt * 6));
+    var R = f.root, tor = f.torso;
+    ['R', 'L'].forEach(function (s) {
+      var sg = s === 'R' ? 1 : -1;
+      var sh = tor.localToWorld(V(sg * 0.29, 0.56, 0));
+      var h = R.localToWorld(V(sg * 0.28, 0.935, -0.78));
+      if (sg === 1 && f.aim > 0.001) h.lerp(R.localToWorld(V(0.37, 1.27, -0.03)), ease(clamp(f.aim, 0, 1)));
+      var out = V(sg, 0, 0).applyQuaternion(R.quaternion);
+      var sp = Math.max(0, 0.54 - sh.distanceTo(h));
+      var el = sh.clone().add(h).multiplyScalar(0.5).addScaledVector(out, sp * 0.6 + 0.03).addScaledVector(DOWN, sp * 0.45 + 0.03);
+      place(f.arms['u' + s], sh, el, 0.05); place(f.arms['f' + s], el, h, 0.043);
+      f.hands[s].position.copy(h);
+    });
+  }
+  function eyeOf(f) { return f.root.localToWorld(V(0, 1.34, -0.11)); }
+  function focusPoint(i) { var f = fig[i]; return f.dead ? f.root.localToWorld(V(0, 0.95, -0.2)) : f.root.localToWorld(V(0, 1.3, -0.02)); }
+
+  /* ---------- blood ---------- */
+  var MAXP = 3200, ppos = new Float32Array(MAXP * 3), pvel = new Float32Array(MAXP * 3), plife = new Float32Array(MAXP), pcur = 0;
+  for (var pi = 0; pi < MAXP; pi++) ppos[pi * 3 + 1] = -100;
+  var pgeo = new T.BufferGeometry(); pgeo.setAttribute('position', new T.BufferAttribute(ppos, 3));
+  var points = new T.Points(pgeo, new T.PointsMaterial({ color: 0xa30f18, size: 0.05, sizeAttenuation: true, transparent: true, opacity: 0.95, depthWrite: false }));
+  points.frustumCulled = false; scene.add(points);
+  function emit(x, y, z, vx, vy, vz) { var i = pcur; pcur = (pcur + 1) % MAXP; ppos[i * 3] = x; ppos[i * 3 + 1] = y; ppos[i * 3 + 2] = z; pvel[i * 3] = vx; pvel[i * 3 + 1] = vy; pvel[i * 3 + 2] = vz; plife[i] = 1; }
+
+  var decalM = mat(0x7a0c14, 0.3, 0, { emissive: 0x1c0204, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+  var decalG = new T.CircleGeometry(1, 10);
+  var decals = [], MAXD = 420, dnext = 0, dwrap = 0, extras = [], pools = [];
+  function decal(x, y, z, r, flat, ry) {
+    var m;
+    if (dnext < decals.length) { m = decals[dnext]; dnext++; }
+    else if (decals.length < MAXD) { m = new T.Mesh(decalG, decalM); scene.add(m); decals.push(m); dnext = decals.length; }
+    else { m = decals[dwrap]; dwrap = (dwrap + 1) % MAXD; }
+    m.position.set(x, y, z);
+    if (flat) m.rotation.set(-Math.PI / 2, 0, rand(0, 6.28)); else m.rotation.set(0, ry || 0, rand(0, 6.28));
+    m.scale.set(r, r * rand(0.6, 1.3), 1); m.visible = true; return m;
+  }
+  function addPool(x, y, z, target, rate) {
+    var m = new T.Mesh(new T.CircleGeometry(1, 28), decalM); m.rotation.x = -Math.PI / 2; m.position.set(x, y, z); m.scale.set(0.02, 0.02, 1); scene.add(m);
+    var p = { m: m, r: 0.02, target: target, rate: rate, sy: rand(0.8, 1.15) }; pools.push(p); return p;
+  }
+  var bits = [], chunkMats = [mat(0x7a0c14, 0.4), mat(0x5a0a10, 0.5), mat(0x9a1a22, 0.4)];
+  function addBit(mesh, v, w, r) { scene.add(mesh); bits.push({ m: mesh, v: v, w: w, r: r, sleep: false, py: mesh.position.y }); }
+
+  function splatterWall(vic, ex) {
+    var xWall = Math.abs(ex.x) > Math.abs(ex.z), sgn = xWall ? (ex.x > 0 ? 1 : -1) : (ex.z > 0 ? 1 : -1);
+    var wpos = xWall ? sgn * 4.49 : sgn * 4.99, ry = xWall ? (sgn > 0 ? -Math.PI / 2 : Math.PI / 2) : (sgn > 0 ? Math.PI : 0);
+    var lat0 = xWall ? vic.z : vic.x, i;
+    for (i = 0; i < 24; i++) {
+      var lat = lat0 + rand(-1.6, 1.6), y = rand(0.5, 2.4), r = rand(0.04, 0.22);
+      var px = xWall ? wpos : lat, pz = xWall ? lat : wpos;
+      decal(px, y, pz, r, false, ry);
+      if (i % 3 === 0) {
+        var len = rand(0.15, 0.7), s = new T.Mesh(new T.PlaneGeometry(1, 1), decalM);
+        s.scale.set(rand(0.012, 0.03), len, 1); s.position.set(px - (xWall ? sgn * 0.004 : 0), y - len / 2, pz - (xWall ? 0 : sgn * 0.004)); s.rotation.y = ry; scene.add(s); extras.push(s);
+      }
+    }
+  }
+  function burst(f) {
+    f.root.updateMatrixWorld(true);
+    var hp = f.head.localToWorld(V(0, 0.13, 0));
+    var ex = V(-1, 0.12, 0.45).applyQuaternion(f.root.quaternion).normalize(), i;
+    var n1 = REDUCED ? 140 : 300;
+    for (i = 0; i < n1; i++) {
+      var sp = rand(1.2, 6.5), v = ex.clone().multiplyScalar(sp).add(V(rand(-1, 1), rand(-0.4, 1), rand(-1, 1)).multiplyScalar(sp * 0.3));
+      v.y += rand(0.3, 2.2);
+      emit(hp.x + rand(-0.06, 0.06), hp.y + rand(-0.06, 0.08), hp.z + rand(-0.06, 0.06), v.x, v.y, v.z);
+    }
+    for (i = 0; i < 34; i++) {
+      var s = rand(0.025, 0.07), m = new T.Mesh(new T.BoxGeometry(s * rand(0.6, 1.4), s, s * rand(0.6, 1.4)), chunkMats[i % 3]);
+      m.position.set(hp.x + rand(-0.05, 0.05), hp.y + rand(-0.05, 0.05), hp.z + rand(-0.05, 0.05)); m.castShadow = true;
+      addBit(m, ex.clone().multiplyScalar(rand(1, 5)).add(V(rand(-1.2, 1.2), rand(0.5, 3), rand(-1.2, 1.2))), V(rand(-9, 9), rand(-9, 9), rand(-9, 9)), s * 0.5);
+    }
+    if (f.hat) {
+      f.hat = false; f.hatG.visible = false;
+      var hm = buildHat(); hm.position.copy(hp).add(V(0, 0.12, 0));
+      addBit(hm, ex.clone().multiplyScalar(1.2).add(V(rand(-0.4, 0.4), 2.6, rand(-0.4, 0.4))), V(rand(-5, 5), rand(-5, 5), rand(-5, 5)), 0.02);
+    }
+    splatterWall(f.root.position, ex);
+    var fp = f.root.localToWorld(V(rand(-0.05, 0.05), 0, -0.3));
+    f.floorPool = addPool(fp.x, 0.011, fp.z, 0.95, 0.07);
+  }
+  function spurtStep(f, dt) {
+    var sp = f.spurt; if (!sp) return;
+    sp.t += dt;
+    var s = Math.exp(-sp.t / 3.6);
+    if (sp.t > 14) { f.spurt = null; return; }
+    var np = f.torso.localToWorld(V(0, 0.74, 0));
+    f.torso.getWorldQuaternion(_q);
+    var up = V(0, 1, 0).applyQuaternion(_q);
+    if (sp.t >= sp.next) {
+      sp.next = sp.t + 0.85 + sp.t * 0.06;
+      var cnt = Math.floor(25 + 90 * s), spd = 1.2 + 2.6 * s;
+      for (var i = 0; i < cnt; i++) {
+        var v = up.clone().multiplyScalar(spd * rand(0.6, 1.2)).add(V(rand(-0.6, 0.6), rand(-0.1, 0.4), rand(-0.6, 0.6)));
+        emit(np.x + rand(-0.02, 0.02), np.y, np.z + rand(-0.02, 0.02), v.x, v.y, v.z);
+      }
+      spurtSound(s);
+    }
+    sp.acc += 60 * s * dt;
+    while (sp.acc >= 1) { sp.acc -= 1; var w = up.clone().multiplyScalar(rand(0.3, 0.9)).add(V(rand(-0.3, 0.3), 0, rand(-0.3, 0.3))); emit(np.x, np.y, np.z, w.x, w.y, w.z); }
+    if (!f.tablePool && sp.t > 1.0) {
+      var rr = Math.sqrt(np.x * np.x + np.z * np.z), kk = rr > 0.5 ? 0.5 / rr : 1;
+      f.tablePool = addPool(np.x * kk, TOP + 0.006, np.z * kk, 0.3, 0.045);
+    }
+  }
+
+  /* ---------- sound ---------- */
+  var ac = null, muted = false;
+  function actx() {
+    if (muted) return null;
+    if (!ac) { try { ac = new (window.AudioContext || window.webkitAudioContext)(); } catch (e) { return null; } }
+    if (ac && ac.state === 'suspended') { try { ac.resume(); } catch (e) {} }
+    return ac;
+  }
+  function tone(type, freq, dur, vol) {
+    var c = actx(); if (!c) return;
+    try { var o = c.createOscillator(), g = c.createGain(); o.type = type; o.frequency.value = freq; g.gain.setValueAtTime(vol, c.currentTime); g.gain.exponentialRampToValueAtTime(0.001, c.currentTime + dur); o.connect(g); g.connect(c.destination); o.start(); o.stop(c.currentTime + dur); } catch (e) {}
+  }
+  function noise(dur, cutoff, vol, pow) {
+    var c = actx(); if (!c) return;
+    try {
+      var len = Math.floor(c.sampleRate * dur), buf = c.createBuffer(1, len, c.sampleRate), d = buf.getChannelData(0);
+      for (var i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, pow || 3);
+      var s = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain();
+      s.buffer = buf; f.type = 'lowpass'; f.frequency.value = cutoff; g.gain.value = vol; s.connect(f); f.connect(g); g.connect(c.destination); s.start();
+    } catch (e) {}
+  }
+  function clickSound() { tone('square', 2200, 0.03, 0.18); setTimeout(function () { tone('square', 900, 0.05, 0.12); }, 40); }
+  function thump() { tone('sine', 62, 0.16, 0.5); }
+  function spinSound() { for (var i = 0; i < 16; i++) { (function (i) { setTimeout(function () { tone('square', 800 + Math.random() * 500, 0.02, 0.07); }, i * 55 + i * i * 5); })(i); } }
+  function bangSound() { noise(0.8, 1300, 0.9, 3); tone('sine', 55, 0.4, 0.7); }
+  function spurtSound(s) { noise(0.18, 700, 0.2 + 0.3 * s, 2); }
+
+  /* ---------- game state ---------- */
+  var AI_NAMES = ['Marlow', 'Vesper', 'Dutch'], AI_TH = [0.36, 0.5, 0.42];
+  var NP = 4, mode = 'house', n = 1, matchNo = 0, gen = 0;
+  var chambers = [], pos = 0, fired = 0, alive = [], spins = [], tally = [0, 0, 0, 0], round = 1;
+  var turn = 0, viewerSeat = 0, focusSeat = null, gunSeat = 0, gunHolder = null;
+  var matchOver = false, busy = false, endTitle = '', endSub = '';
+  var phase = 'menu', introOn = false, rig = null;
+  var spinT = 0, cylAng = 0, cylTarget = 0;
+  var isHost = false, mySeat = 0, seatInfo = [], awaitingRemote = -1, lastS = 0, evSeq = 0, forcedStart = null, netActAt = 0, localMode = 'house';
+  var net = { ns: null, rm: null, code: '', hostPeer: null, roster: [], lobbyNP: 4, lobbyN: 1, unsubs: [], timer: 0, helloTimer: 0, deadline: 0, lobbyData: null, started: false, seated: false, joinName: '' };
+  function isMirror() { return mode === 'online' && !isHost; }
+  function seatName(i) {
+    if (mode === 'house') return i === 0 ? 'You' : AI_NAMES[i - 1];
+    if (mode === 'online') return i === mySeat ? 'You' : ((seatInfo[i] && seatInfo[i].name) || 'Player ' + (i + 1));
+    return 'Player ' + (i + 1);
+  }
+  function youAre(i) { return (mode === 'house' && i === 0) || (mode === 'online' && i === mySeat); }
+  function vb(i, a, b) { return youAre(i) ? a : b; }
+  function isLocal(i) { return mode === 'friends' || (mode === 'house' && i === 0) || (mode === 'online' && i === mySeat); }
+  function isBot(i) { return mode === 'house' ? i !== 0 : (mode === 'online' ? !!(seatInfo[i] && seatInfo[i].bot) : false); }
+  function nextAlive(i) { for (var k = 1; k <= NP; k++) { var j = (i + k) % NP; if (alive[j]) return j; } return i; }
+  function aliveCount() { var c = 0; for (var i = 0; i < NP; i++) if (alive[i]) c++; return c; }
+  function riskNow() { return Math.min(1, n / (6 - fired)); }
+  function interactive() { return !busy && !matchOver && isLocal(turn) && camMode === 'seat' && alive[viewerSeat] && gunHolder === null; }
+  function setStatus(big, kind, small) { var b = $('st-big'); b.textContent = big; b.className = 'big ' + (kind || 'tense'); $('st-small').textContent = small || ''; }
+  function log(msg) { var ul = $('log'), li = document.createElement('li'); li.textContent = msg; ul.insertBefore(li, ul.firstChild); while (ul.children.length > 7) ul.removeChild(ul.lastChild); }
+  function pause(ms, g) { return sleep(ms).then(function () { return g === gen; }); }
+
+  function setSeating() {
+    for (var i = 0; i < 4; i++) {
+      var f = fig[i]; f.in = i < NP;
+      if (f.in) { f.theta = i * Math.PI * 2 / NP; f.root.position.set(Math.sin(f.theta) * R_SEAT, 0, Math.cos(f.theta) * R_SEAT); f.root.rotation.y = f.theta; }
+      setFigVisible(f, f.in);
+    }
+  }
+
+  /* ---------- camera ---------- */
+  var camMode = 'menu'; // 'menu' | 'intro' | 'seat' | 'pull' | 'spectate'
+  var camPos = V(Math.sin(0.6) * 2.7, 1.75, Math.cos(0.6) * 2.7), camLook = V(0, 0.95, 0), camInit = false;
+  var introP = 0, introStart = V(0, 0, 0), introLookStart = V(0, 0, 0);
+  var pullP = 0, pullStart = V(0, 0, 0), pullStartLook = V(0, 0, 0), camPush = 0, camPushT = 0;
+  var lampTarget = 1, lampMul = 1, lampKick = 0, lampKickT = 0, trauma = 0, slow = 1, muzzleI = 0;
+  var mx = 0, my = 0, tmx = 0, tmy = 0, fovNow = 62, fovT = 62, tension = 0;
+
+  function updateCamera(dt, t) {
+    mx += (tmx - mx) * (1 - Math.exp(-dt * 4)); my += (tmy - my) * (1 - Math.exp(-dt * 4));
+    var vf = fig[viewerSeat], baseFov = camera.aspect < 1.1 ? 74 : 64;
+    if (camMode === 'menu') {
+      var ma = t / 14000 + 0.6, mp = V(Math.sin(ma) * 2.7, 1.75, Math.cos(ma) * 2.7);
+      camPos.lerp(mp, 1 - Math.exp(-dt * 1.4)); camLook.lerp(V(0, 0.95, 0), 1 - Math.exp(-dt * 2));
+      fovT = 50;
+    } else if (camMode === 'intro') {
+      introP = Math.min(1, introP + dt / 2.8);
+      var ie = ease(introP);
+      camPos.lerpVectors(introStart, eyeOf(vf), ie); camLook.lerpVectors(introLookStart, V(0, 0.98, 0), ie);
+      fovT = baseFov;
+      if (introP >= 1) { camMode = 'seat'; camInit = true; camPush = 0; }
+    } else if (camMode === 'pull') {
+      pullP = Math.min(1, pullP + dt / 3.4);
+      var e = ease(pullP), ang = 0.9 + 0.35 * Math.sin(t / 6500), th = vf.theta;
+      var C = V(vf.root.position.x, 0.9, vf.root.position.z);
+      var out = V(Math.sin(th), 0, Math.cos(th)), rt = V(Math.cos(th), 0, -Math.sin(th));
+      var endPos = C.clone().addScaledVector(out, 3.3 * Math.cos(ang)).addScaledVector(rt, 3.3 * Math.sin(ang)); endPos.y = 2.25;
+      camPos.lerpVectors(pullStart, endPos, e); camLook.lerpVectors(pullStartLook, C, e);
+      fovT = baseFov - 12;
+    } else if (camMode === 'spectate') {
+      var a = t / 11000, tp = V(Math.sin(a) * 3.3, 2.5, Math.cos(a) * 3.3);
+      var lk = (focusSeat !== null && fig[focusSeat].in) ? focusPoint(focusSeat) : V(0, 1, 0);
+      camPos.lerp(tp, 1 - Math.exp(-dt * 1.5)); camLook.lerp(lk, 1 - Math.exp(-dt * 2.5));
+      fovT = baseFov - 6;
+    } else {
+      var eye = eyeOf(vf), tgt;
+      if (focusSeat !== null && fig[focusSeat].in) tgt = focusPoint(focusSeat); else tgt = V(0, 0.98, 0);
+      eye.y += Math.sin(t / 700) * 0.004;
+      camPush += (camPushT - camPush) * (1 - Math.exp(-dt * 1.2));
+      if (focusSeat !== null) eye.lerp(tgt, camPush);
+      var dir = tgt.clone().sub(eye), rgt = dir.clone().cross(UP).normalize();
+      tgt.addScaledVector(rgt, mx * 0.14); tgt.y += -my * 0.1;
+      if (!camInit) { camPos.copy(eye); camLook.copy(tgt); camInit = true; }
+      var k = 1 - Math.exp(-dt * 3.2);
+      camPos.lerp(eye, k); camLook.lerp(tgt, k);
+      fovT = baseFov - (tension ? 8 : 0) - camPush * 20;
+    }
+    fovNow += (fovT - fovNow) * (1 - Math.exp(-dt * 3));
+    camera.fov = fovNow; camera.updateProjectionMatrix();
+    camera.position.copy(camPos);
+    trauma = Math.max(0, trauma - dt * 1.4);
+    if (trauma > 0 && !REDUCED) camera.position.add(V(rand(-1, 1), rand(-1, 1), rand(-1, 1)).multiplyScalar(0.03 * trauma * trauma));
+    camera.lookAt(camLook);
+    camera.updateMatrixWorld();
+  }
+
+  var Ymat = new T.Matrix4(), qTable = new T.Quaternion(), qJit = new T.Quaternion().setFromAxisAngle(UP, 0.14), tmpOff = new T.Vector3();
+  function tableQuat(theta) {
+    var s = Math.sin(theta), c = Math.cos(theta);
+    Ymat.makeBasis(V(0, 1, 0), V(-s, 0, -c), V(-c, 0, s)); // gun lies on its side, barrel to the actor's right, trigger side toward them
+    qTable.setFromRotationMatrix(Ymat); return qTable.premultiply(qJit);
+  }
+  function updateGun(dt) {
+    var k = 1 - Math.exp(-dt * 9), tp, tq = new T.Quaternion(), sc;
+    if (gunHolder === null) {
+      var gs = fig[gunSeat] && fig[gunSeat].in ? gunSeat : 0, inGame = phase === 'game';
+      var th = inGame ? fig[gs].theta : 0.6, rad = inGame ? 0.26 : 0.03;
+      tq.copy(tableQuat(th)); tmpOff.set(0, 0, 0.17 * GUN_SCALE_TABLE).applyQuaternion(tq);
+      tp = V(Math.sin(th) * rad, TOP + 0.05, Math.cos(th) * rad).sub(tmpOff); sc = GUN_SCALE_TABLE;
+    } else {
+      var f = fig[gunHolder]; sc = 1;
+      if (gunHolder === viewerSeat && camMode === 'seat' && !f.dead) { tp = camera.localToWorld(V(0.2, -0.07, -0.5)); camera.getWorldQuaternion(_q); tq.copy(_q).multiply(qView); }
+      else { tp = f.root.localToWorld(V(0.17, 1.33, -0.02)); tq.copy(f.root.quaternion).multiply(qFig); }
+    }
+    gun.position.lerp(tp, k); gun.quaternion.slerp(tq, k);
+    gun.scale.setScalar(gun.scale.x + (sc - gun.scale.x) * k);
+    if (spinT > 0) {
+      gunCyl.rotation.z += dt * 22 * (0.25 + spinT / 1.7); spinT -= dt;
+      if (spinT <= 0) { var d = (gunCyl.rotation.z - cylTarget) % (Math.PI * 2); if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2; cylAng = cylTarget + d; }
+    } else { cylAng += (cylTarget - cylAng) * (1 - Math.exp(-dt * 12)); gunCyl.rotation.z = cylAng; }
+    var f2 = fig[viewerSeat];
+    viewArm.visible = (gunHolder === viewerSeat && camMode === 'seat' && !f2.dead && f2.aim > 0.3);
+    gun.updateMatrixWorld(true);
+  }
+
+  /* ---------- hover & click on the gun ---------- */
+  var ray = new T.Raycaster(), ndc = new T.Vector2(), ptr = { x: 0, y: 0, inside: false }, hovered = null, hov = { trig: 0, cyl: 0 };
+  var tip = $('tip');
+  function setPointer(e) {
+    var r = vp.getBoundingClientRect();
+    ptr.x = e.clientX - r.left; ptr.y = e.clientY - r.top; ptr.inside = true;
+    ndc.x = (ptr.x / r.width) * 2 - 1; ndc.y = -(ptr.y / r.height) * 2 + 1;
+    tmx = ndc.x; tmy = -ndc.y;
+  }
+  function pick() {
+    if (!interactive()) return null;
+    ray.setFromCamera(ndc, camera);
+    var hit = ray.intersectObjects([trigProxy, cylProxy], false);
+    return hit.length ? hit[0].object.userData.kind : null;
+  }
+  function updateHover(t, dt) {
+    var inter = interactive(), h = (inter && ptr.inside) ? pick() : null;
+    if (h !== hovered) {
+      hovered = h;
+      vp.style.cursor = h ? 'pointer' : 'default';
+      tip.classList.toggle('on', !!h);
+      if (h) tip.textContent = h === 'trig' ? 'Pull trigger' : 'Spin cylinder';
+    }
+    if (hovered) { tip.style.left = ptr.x + 'px'; tip.style.top = ptr.y + 'px'; }
+    var k = 1 - Math.exp(-dt * 12);
+    hov.trig += ((hovered === 'trig' ? 1 : 0) - hov.trig) * k; hov.cyl += ((hovered === 'cyl' ? 1 : 0) - hov.cyl) * k;
+    var pulse = inter ? 0.14 + 0.1 * Math.sin(t / 360) : 0;
+    trigM.emissiveIntensity = pulse * (1 - hov.trig) + hov.trig * 1.0;
+    cylM.emissiveIntensity = pulse * (1 - hov.cyl) + hov.cyl * 0.85;
+    cm.scale.setScalar(1 + 0.07 * hov.cyl); trigMesh.scale.set(1 + 0.6 * hov.trig, 1 + 0.25 * hov.trig, 1 + 0.6 * hov.trig);
+  }
+  vp.addEventListener('pointermove', setPointer);
+  vp.addEventListener('pointerdown', setPointer);
+  vp.addEventListener('pointerleave', function () { ptr.inside = false; tmx = 0; tmy = 0; });
+  vp.addEventListener('click', function (e) {
+    if (e.target.closest && e.target.closest('button')) return;
+    setPointer(e); var k = pick();
+    if (k === 'trig') humanPull(); else if (k === 'cyl') humanSpin();
+  });
+  document.addEventListener('keydown', function (e) {
+    var tg = e.target && e.target.tagName; if (tg === 'BUTTON' || tg === 'INPUT' || tg === 'SELECT' || tg === 'TEXTAREA') return;
+    if (e.code === 'Space' || e.code === 'Enter') { if (interactive()) { e.preventDefault(); humanPull(); } }
+    else if (e.code === 'KeyS') { if (interactive()) humanSpin(); }
+  });
+  function humanPull() {
+    if (!interactive()) return;
+    if (isMirror()) { busy = true; netSend('pull'); render(); } else doPull(turn, gen);
+  }
+  function humanSpin() {
+    if (!interactive()) return;
+    if (spins[turn] <= 0) { setStatus($('st-big').textContent, 'tense', 'No spins left this round.'); return; }
+    if (isMirror()) { busy = true; netSend('spin'); render(); } else doSpin(turn, gen);
+  }
+
+  /* ---------- per-frame update ---------- */
+  var lastT = 0;
+  function update(t, dtReal) {
+    var dt = dtReal * slow;
+    slow += (1 - slow) * (1 - Math.exp(-dtReal * 1.6));
+    lampMul += (lampTarget - lampMul) * (1 - Math.exp(-dtReal * 5));
+    var flick = 1 + 0.03 * Math.sin(t / 77) + 0.02 * Math.sin(t / 29) - (lampTarget < 0.9 && Math.random() < 0.06 ? rand(0.1, 0.3) : 0);
+    spot.intensity = 2.6 * lampMul * flick;
+    var age = (t - lampKickT) / 1000, kick = lampKick * Math.exp(-age / 2) * Math.sin(age * 3.5);
+    lamp.rotation.x = Math.sin(t / 2100) * 0.004 + kick; lamp.rotation.z = Math.cos(age * 3.1) * lampKick * Math.exp(-age / 2) * 0.6;
+    muzzleI = Math.max(0, muzzleI - dtReal * 3.5); muzzle.intensity = muzzleI * 8;
+    fig.forEach(function (f) {
+      if (!f.in) return;
+      if (f.sliding) { f.slideT += dtReal; f.slideP = clamp(f.slideT / 1.3, 0, 1); if (f.slideP >= 1) { f.sliding = false; thump(); } }
+      var rr = R_SEAT + (1 - ease(f.slideP)) * 2.4;
+      f.root.position.set(Math.sin(f.theta) * rr, 0, Math.cos(f.theta) * rr);
+      if (f.dead && t - f.deadAt > 250) f.lean += (f.leanT - f.lean) * (1 - Math.exp(-dt * 3));
+      f.torso.rotation.x = -f.lean;
+      f.root.updateMatrixWorld(true);
+      limbs(f, dtReal);
+      spurtStep(f, dt);
+    });
+    pools.forEach(function (p) { if (p.r < p.target) { p.r = Math.min(p.target, p.r + p.rate * dt); p.m.scale.set(p.r, p.r * p.sy, 1); } });
+    var any = false, i, TR2 = TR * TR;
+    for (i = 0; i < MAXP; i++) {
+      if (plife[i] <= 0) continue;
+      var i3 = i * 3, py = ppos[i3 + 1];
+      pvel[i3 + 1] -= 9.8 * dt;
+      ppos[i3] += pvel[i3] * dt; ppos[i3 + 1] += pvel[i3 + 1] * dt; ppos[i3 + 2] += pvel[i3 + 2] * dt;
+      var x = ppos[i3], y = ppos[i3 + 1], z = ppos[i3 + 2];
+      if (py >= TOP - 0.005 && y < TOP + 0.005 && x * x + z * z < TR2) {
+        if (Math.random() < 0.3) decal(x, TOP + 0.006, z, rand(0.012, 0.04), true);
+        plife[i] = 0; ppos[i3 + 1] = -100;
+      } else if (y < 0.02) {
+        if (Math.random() < 0.3) decal(x, 0.012, z, rand(0.012, 0.045), true);
+        plife[i] = 0; ppos[i3 + 1] = -100;
+      } else if (Math.abs(z) > 4.95 || Math.abs(x) > 4.45 || y > 3.3) { plife[i] = 0; ppos[i3 + 1] = -100; }
+      any = true;
+    }
+    if (any) pgeo.attributes.position.needsUpdate = true;
+    bits.forEach(function (b) {
+      if (b.sleep) return;
+      var p = b.m.position; b.py = p.y;
+      b.v.y -= 9.8 * dt; p.addScaledVector(b.v, dt);
+      b.m.rotation.x += b.w.x * dt; b.m.rotation.y += b.w.y * dt; b.m.rotation.z += b.w.z * dt;
+      var onT = (p.x * p.x + p.z * p.z) < TR2 && b.py >= TOP, fy = onT ? TOP : 0;
+      if (p.y < fy + b.r && b.v.y < 0) {
+        p.y = fy + b.r; b.v.y *= -0.25; b.v.x *= 0.55; b.v.z *= 0.55; b.w.multiplyScalar(0.5);
+        if (Math.abs(b.v.y) < 0.4) { b.sleep = true; if (b.r > 0.03) decal(p.x, fy + 0.01, p.z, rand(0.03, 0.08), true); }
+      }
+      if (Math.abs(p.z) > 4.9) b.v.z *= -0.3; if (Math.abs(p.x) > 4.4) b.v.x *= -0.3;
+    });
+    updateCamera(dtReal, t);
+    updateGun(dtReal);
+    updateHover(t, dtReal);
+    fig.forEach(function (f, idx) {
+      if (!f.in) return;
+      var hide = (camMode === 'seat' || camMode === 'intro') && idx === viewerSeat && !f.dead && camPos.distanceTo(eyeOf(f)) < 0.8;
+      setFigVisible(f, !hide);
+    });
+  }
+  function frame(t) {
+    var dt = Math.min(0.05, (t - (lastT || t)) / 1000); lastT = t;
+    try { update(t, dt); renderer.render(scene, camera); } catch (e) { if (!frame.err) { frame.err = 1; console.error(e); } }
+    requestAnimationFrame(frame);
+  }
+  function resize() {
+    var w = Math.max(200, vp.clientWidth), h = Math.max(200, vp.clientHeight);
+    renderer.setSize(w, h, false); camera.aspect = w / h; camera.updateProjectionMatrix();
+  }
+  window.addEventListener('resize', resize);
+  try { new ResizeObserver(resize).observe(vp); } catch (e) {}
+
+  /* ---------- screen effects ---------- */
+  function flashFx() {
+    var f = $('flashfx'); f.style.transition = 'none'; f.style.opacity = REDUCED ? '0.35' : '0.9'; void f.offsetWidth;
+    f.style.transition = 'opacity 0.9s ease-out'; f.style.opacity = '0';
+  }
+  function lensSplat() {
+    var fx = $('bloodfx'), w = vp.clientWidth, h = vp.clientHeight;
+    for (var i = 0; i < 9; i++) {
+      var d = document.createElement('div'), sz = rand(0.1, 0.3) * Math.min(w, h) * 1.6;
+      d.className = 'splat'; d.style.width = sz + 'px'; d.style.height = sz * rand(0.8, 1.3) + 'px';
+      d.style.left = rand(-0.05, 0.9) * w + 'px'; d.style.top = rand(-0.05, 0.8) * h + 'px'; d.style.opacity = '1';
+      fx.appendChild(d); (function (d) { void d.offsetWidth; d.style.transform = 'translateY(' + rand(40, 160) + 'px)'; setTimeout(function () { d.style.opacity = '0'; }, 5200); })(d);
+    }
+  }
+
+  /* ---------- match flow ---------- */
+  function resetWorld() {
+    plife.fill(0); for (var i = 0; i < MAXP; i++) ppos[i * 3 + 1] = -100; pgeo.attributes.position.needsUpdate = true;
+    bits.forEach(function (b) { scene.remove(b.m); }); bits = [];
+    decals.forEach(function (m) { m.visible = false; }); dnext = 0; dwrap = 0;
+    extras.forEach(function (m) { scene.remove(m); }); extras = [];
+    pools.forEach(function (p) { scene.remove(p.m); }); pools = [];
+    $('bloodfx').innerHTML = '';
+    fig.forEach(function (f, idx) {
+      f.dead = false; f.aim = 0; f.aimT = 0; f.lean = 0; f.leanT = 0; f.spurt = null; f.tablePool = null; f.floorPool = null; f.slideP = 1; f.sliding = false;
+      f.head.visible = true; f.stump.visible = false; f.torso.rotation.x = 0;
+      f.hat = (mode === 'house' ? idx % 2 === 1 : (mode === 'online' && idx % 2 === 1 && !!(seatInfo[idx] && seatInfo[idx].bot))); f.hatG.visible = f.hat;
+    });
+  }
+  function loadChambers() {
+    chambers = [false, false, false, false, false, false];
+    var placed = 0; while (placed < n) { var k = Math.floor(Math.random() * 6); if (!chambers[k]) { chambers[k] = true; placed++; } }
+    pos = Math.floor(Math.random() * 6); cylTarget = -pos * Math.PI / 3; fired = 0;
+    for (var i = 0; i < 4; i++) spins[i] = 1;
+  }
+  function enterGameUI() {
+    phase = 'game'; vp.dataset.phase = 'game'; showScreen(null);
+    $('after').hidden = false; $('tomenu').hidden = false;
+  }
+  function newMatch(intro) {
+    gen++; var g = gen; rig = null;
+    fast = false; resetWorld(); setSeating();
+    alive = []; for (var i = 0; i < NP; i++) alive.push(true);
+    matchOver = false; busy = false; round = 1; focusSeat = null; gunHolder = null; spinT = 0; awaitingRemote = -1;
+    loadChambers(); cylAng = cylTarget; gunCyl.rotation.z = cylAng;
+    camPush = 0; camPushT = 0; tension = 0; lampTarget = 1; slow = 1; introOn = false;
+    $('log').innerHTML = '';
+    turn = forcedStart !== null ? forcedStart : (matchNo++) % NP; forcedStart = null;
+    gunSeat = turn; viewerSeat = mode === 'friends' ? turn : (mode === 'online' ? mySeat : 0);
+    log('Match started: ' + NP + ' players, ' + n + (n === 1 ? ' bullet' : ' bullets') + '.');
+    if (intro === true) {
+      camMode = 'intro'; introP = 0; introStart.copy(camPos); introLookStart.copy(camLook); introOn = true; busy = true;
+      for (i = 0; i < NP; i++) { fig[i].sliding = true; fig[i].slideT = -(0.3 + 0.45 * i); fig[i].slideP = 0; }
+      setStatus('Taking seats…', 'tense', ''); render();
+      pause(3400, g).then(function (ok) { if (ok && !isMirror()) beginTurn(g); });
+    } else { camMode = 'seat'; camInit = false; if (isMirror()) { busy = true; render(); } else beginTurn(g); }
+  }
+
+  /* shared by the host's own flow and by guests mirroring the host's events */
+  function applyTurn() {
+    introOn = false;
+    if (mode === 'friends') { viewerSeat = turn; focusSeat = null; }
+    else focusSeat = turn === viewerSeat ? null : turn;
+    gunSeat = turn;
+    var local = isLocal(turn);
+    busy = !local;
+    setStatus(youAre(turn) ? 'Your move.' : (mode === 'friends' ? seatName(turn) + ', your move.' : seatName(turn) + ' is up.'), 'tense',
+      local ? 'Click the trigger to fire, or the cylinder to spin.' : '');
+    render();
+  }
+  function applyRaise(seat) {
+    busy = true; var f = fig[seat]; f.aimT = 1; gunHolder = seat; lampTarget = 0.55; tension = 1;
+    if (mode !== 'friends' && seat !== viewerSeat) focusSeat = seat;
+    setStatus(seatName(seat) + ' ' + vb(seat, 'raise', 'raises') + ' the gun…', 'tense', ''); render();
+  }
+  function applyClick(seat) {
+    clickSound(); fired++; pos = (pos + 1) % 6; cylTarget -= Math.PI / 3;
+    fig[seat].aimT = 0; gunHolder = null; lampTarget = 1; tension = 0; trauma = 0.25;
+    log(seatName(seat) + ' pulled. Click. Empty.');
+    turn = nextAlive(seat);
+    setStatus('Click.', 'good', seatName(seat) + ' ' + vb(seat, 'live', 'lives') + '. Empty chamber.'); render();
+  }
+  function applySpin(seat) {
+    busy = true; spins[seat]--; gunHolder = null; gunSeat = seat; spinT = 1.7;
+    if (mode !== 'friends' && seat !== viewerSeat) focusSeat = seat;
+    setStatus(seatName(seat) + ' ' + vb(seat, 'spin', 'spins') + ' the cylinder.', 'tense', 'Turn passes.'); render(); spinSound();
+    pos = Math.floor(Math.random() * 6); fired = 0; cylTarget = -pos * Math.PI / 3;
+    log(seatName(seat) + ' spun the cylinder.');
+  }
+  function applyAfterSpin(seat) {
+    turn = nextAlive(seat);
+    setStatus('Spun.', 'tense', 'Risk is back to ' + Math.round(riskNow() * 100) + '%.'); render();
+  }
+  function applyBang(seat, shot) {
+    var f = fig[seat], now = performance.now();
+    f.dead = true; f.deadAt = now; f.leanT = 0.8; f.aimT = 0; f.head.visible = false; f.stump.visible = true;
+    alive[seat] = false; gunHolder = null; gunSeat = seat; lampTarget = 1; tension = 0; busy = true;
+    bangSound(); flashFx(); trauma = 1; slow = 0.22;
+    try { if (navigator.vibrate) navigator.vibrate(220); } catch (e) {}
+    vp.classList.remove('shake'); void vp.offsetWidth; if (!REDUCED) vp.classList.add('shake');
+    burst(f); f.spurt = { t: 0, next: 0.3, acc: 0 };
+    lampKick = REDUCED ? 0.05 : 0.2; lampKickT = now; muzzleI = 1; muzzle.position.copy(f.head.localToWorld(V(0, 0.13, 0)));
+    var viewerDied = (seat === viewerSeat && camMode === 'seat');
+    if (viewerDied) { camMode = 'pull'; pullP = 0; pullStart.copy(camPos); pullStartLook.copy(camLook); focusSeat = null; }
+    else { focusSeat = seat; camPushT = 0.12; if (mode !== 'friends' && camMode === 'seat') lensSplat(); }
+    log(seat === undefined ? '' : seatName(seat) + (shot ? ' was blasted with a shotgun.' : ' pulled. BANG.'));
+    var left = aliveCount();
+    if (left === 1) {
+      matchOver = true; var w = alive.indexOf(true); tally[w]++;
+      setStatus('BANG.', youAre(seat) ? 'bad' : 'good', seatName(seat) + (youAre(seat) ? ' are dead.' : ' is dead.'));
+      endTitle = youAre(w) ? 'You win the match' : seatName(w) + ' wins the match';
+      endSub = 'Round ' + round + ' · ' + NP + ' players · ' + n + (n === 1 ? ' bullet' : ' bullets');
+      log(endTitle + '.'); render();
+    } else {
+      setStatus('BANG.', youAre(seat) ? 'bad' : 'good', seatName(seat) + (youAre(seat) ? ' are dead. ' : ' is dead. ') + left + ' left standing.'); render();
+    }
+    return viewerDied;
+  }
+  function applyReload(seat, viewerDied) {
+    camPushT = 0; focusSeat = null;
+    if (viewerDied) camMode = mode !== 'friends' ? 'spectate' : 'seat';
+    round++; loadChambers(); turn = nextAlive(seat); gunSeat = turn;
+    if (mode === 'friends') viewerSeat = turn;
+    spinT = 1.7; spinSound();
+    setStatus('Round ' + round + '.', 'tense', n + (n === 1 ? ' bullet' : ' bullets') + ' reloaded and spun.');
+    log('Round ' + round + ': ' + n + (n === 1 ? ' bullet' : ' bullets') + ' reloaded.'); render();
+  }
+
+  /* the authoritative flow: runs locally, or on the host of an online match */
+  function beginTurn(g) {
+    if (g !== gen || matchOver) return;
+    applyTurn(); netEmit('turn', { seat: turn });
+    if (isLocal(turn)) return;
+    if (isBot(turn)) pause(1400, g).then(function (ok) { if (ok) aiMove(g); });
+    else awaitingRemote = turn;
+  }
+  function aiMove(g) {
+    if (g !== gen || matchOver) return;
+    var th = AI_TH[turn % 3];
+    if (spins[turn] > 0 && fired > 0 && riskNow() >= th && Math.random() < 0.6) doSpin(turn, g); else doPull(turn, g);
+  }
+  async function doPull(seat, g) {
+    awaitingRemote = -1;
+    applyRaise(seat); netEmit('raise', { seat: seat });
+    if (!await pause(700, g)) return; thump();
+    if (!await pause(600, g)) return; thump();
+    if (!await pause(900, g)) return;
+    if (rig && (rig.seat < 0 || rig.seat === seat)) { forceChamber(rig.live); rig = null; }
+    if (chambers[pos]) return bang(seat, g);
+    applyClick(seat); netEmit('click', { seat: seat });
+    if (!await pause(1100, g)) return;
+    beginTurn(g);
+  }
+  async function doSpin(seat, g) {
+    awaitingRemote = -1;
+    applySpin(seat); netEmit('spin', { seat: seat });
+    if (!await pause(1800, g)) return;
+    applyAfterSpin(seat); netEmit('spun', { seat: seat });
+    if (!await pause(700, g)) return;
+    beginTurn(g);
+  }
+  function bang(seat, g) {
+    var vd = applyBang(seat); netEmit('bang', { seat: seat });
+    if (!matchOver) afterDeath(seat, vd, g);
+  }
+  async function afterDeath(seat, viewerDied, g) {
+    var human = mode === 'online' && seatInfo[seat] && !seatInfo[seat].bot;
+    if (!await pause((viewerDied || human) ? 6500 : 3200, g)) return;
+    applyReload(seat, viewerDied); netEmit('reload', { seat: seat });
+    if (!await pause(1900, g)) return;
+    beginTurn(g);
+  }
+
+  /* ---------- online play (room capability) ---------- */
+  var UNAVAIL = "Can't reach the game server. Check your connection and try again.";
+  function realWait(ms) { return new Promise(function (r) { setTimeout(r, ms); }); }
+  function esc(s) { return String(s).replace(/[&<>"']/g, function (c) { return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]; }); }
+  function cleanName(s) { s = String(s || '').replace(/[^A-Za-z0-9 _.'-]/g, '').trim().slice(0, 14); return s || 'Player'; }
+  function makeCode() { var a = 'abcdefghjkmnpqrstuvwxyz23456789', s = ''; for (var i = 0; i < 4; i++) s += a.charAt(Math.floor(Math.random() * a.length)); return s; }
+  function setOnMsg(t) { $('onmsg').textContent = t || ''; }
+  function onBusy(b) { $('hostbtn').disabled = b; $('joinbtn').disabled = b; }
+  function saveNick(v) { try { localStorage.setItem('sc-nick', v); } catch (e) {} }
+  function setSeg(host, val) { var bs = host.children; for (var j = 0; j < bs.length; j++) bs[j].setAttribute('aria-pressed', String(bs[j].textContent) === String(val) ? 'true' : 'false'); }
+  function myPeerId() { if (!net.rm) return null; var ps = net.rm.peers(); for (var i = 0; i < ps.length; i++) if (ps[i].isMe && ps[i].sameTab) return ps[i].peer; return null; }
+  function netEmit(k, data) { if (mode !== 'online' || !isHost || !net.rm) return; data = data || {}; data.k = k; data.s = ++evSeq; net.rm.emit('ev', data).catch(function () {}); }
+  function netSend(a) { netActAt = performance.now(); if (net.rm) net.rm.emit('act', { a: a }).catch(function () {}); }
+  async function netRoom() {
+    if (net.ns) return net.ns;
+    try { net.ns = (window.SixSocket ? await window.SixSocket.room() : null); } catch (e) { net.ns = null; }
+    return net.ns;
+  }
+  function netLeave() {
+    clearInterval(net.timer); clearInterval(net.helloTimer); clearTimeout(net.deadline);
+    net.unsubs.forEach(function (u) { try { u(); } catch (e) {} }); net.unsubs = [];
+    if (net.rm) { try { net.rm.leave().catch(function () {}); } catch (e) {} }
+    net.rm = null; net.hostPeer = null; net.roster = []; net.started = false; net.lobbyData = null; net.seated = false; isHost = false; evSeq = 0;
+  }
+  function leaveWithMessage(msg) { toMenu(); showScreen('onl'); setOnMsg(msg); }
+  function seatOfPeer(peer) { for (var i = 0; i < seatInfo.length; i++) if (seatInfo[i] && !seatInfo[i].bot && seatInfo[i].peer === peer) return i; return -1; }
+
+  function renderLobby() {
+    $('lcode').textContent = (net.code || '').toUpperCase();
+    var d = isHost ? { np: net.lobbyNP, n: net.lobbyN, players: net.roster } : (net.lobbyData || { np: 4, n: 1, players: [] });
+    var ul = $('roster'); ul.innerHTML = ''; var me = myPeerId();
+    for (var i = 0; i < d.np; i++) {
+      var p = null; for (var k = 0; k < d.players.length; k++) if (d.players[k].seat === i) p = d.players[k];
+      var li = document.createElement('li');
+      li.textContent = p ? p.name + (i === 0 ? ' (host)' : '') + (p.peer && p.peer === me ? ' (you)' : '') : 'Open seat · House player';
+      if (!p) li.className = 'open';
+      ul.appendChild(li);
+    }
+    $('hostctl').hidden = !isHost; $('lstart').hidden = !isHost;
+    $('lmsg').textContent = isHost ? (d.players.length > 1 ? 'Everyone listed is seated when you start.' : 'Share the code. Friends choose Play online, then Join.') : 'Waiting for the host to start…';
+    setSeg($('lpseg'), d.np); setSeg($('lnseg'), d.n);
+  }
+  function broadcastLobby() {
+    if (!net.rm || !isHost) return;
+    net.rm.emit('lobby', { code: net.code, np: net.lobbyNP, n: net.lobbyN, started: net.started, players: net.roster.map(function (r) { return { seat: r.seat, name: r.name, peer: r.peer }; }) }).catch(function () {});
+  }
+
+  /* host side */
+  async function onlineHost() {
+    var name = cleanName($('nick').value); saveNick(name); onBusy(true); setOnMsg('Opening a room…');
+    var ns = await netRoom(); if (!ns) { onBusy(false); setOnMsg(UNAVAIL); return; }
+    for (var t = 0; t < 4; t++) {
+      var code = makeCode(), rm;
+      try { rm = await ns.join('sc-' + code); } catch (e) { onBusy(false); setOnMsg(e && e.code === 'not_permitted' ? UNAVAIL : 'Could not open a room. Try again.'); return; }
+      await realWait(1400);
+      if (rm.peers().length <= 1) {
+        net.rm = rm; net.code = code; isHost = true; evSeq = 0; net.started = false; net.lobbyNP = 4; net.lobbyN = n; net.seated = true;
+        net.roster = [{ peer: myPeerId(), name: name, seat: 0 }];
+        net.unsubs.push(rm.on('hello', hostOnHello), rm.on('act', hostOnAct), rm.onPeers(hostOnPeers));
+        net.timer = setInterval(function () { if (net.started) netSnap(); else broadcastLobby(); }, 2000);
+        onBusy(false); setOnMsg(''); showScreen('lobby'); renderLobby(); broadcastLobby(); return;
+      }
+      try { await rm.leave(); } catch (e) {}
+    }
+    onBusy(false); setOnMsg('Could not open a room. Try again.');
+  }
+  function hostOnHello(msg) {
+    if (msg.isMe || net.started || !isHost) return;
+    var d = msg.data || {}, r = null;
+    for (var i = 0; i < net.roster.length; i++) if (net.roster[i].peer === msg.peer) r = net.roster[i];
+    if (!r) {
+      if (net.roster.length >= net.lobbyNP) return;
+      r = { peer: msg.peer, name: cleanName(d.name), seat: net.roster.length }; net.roster.push(r);
+    } else r.name = cleanName(d.name);
+    renderLobby(); broadcastLobby();
+  }
+  function hostOnAct(msg) {
+    if (msg.isMe || !isHost || phase !== 'game' || matchOver) return;
+    var s = seatOfPeer(msg.peer);
+    if (s < 0 || turn !== s || awaitingRemote !== s) return;
+    var a = msg.data && msg.data.a;
+    if (a === 'pull') doPull(s, gen); else if (a === 'spin' && spins[s] > 0) doSpin(s, gen);
+  }
+  function hostOnPeers(ch) {
+    ch.left.forEach(function (p) {
+      if (!net.started) {
+        var k = -1; for (var i = 0; i < net.roster.length; i++) if (net.roster[i].peer === p.peer) k = i;
+        if (k > 0) { net.roster.splice(k, 1); net.roster.forEach(function (r, ix) { r.seat = ix; }); renderLobby(); broadcastLobby(); }
+        return;
+      }
+      var s = seatOfPeer(p.peer);
+      if (s > -1) {
+        var old = seatInfo[s].name; seatInfo[s].bot = true; seatInfo[s].name = AI_NAMES[s % 3];
+        log(old + ' left. ' + seatInfo[s].name + ' takes the seat.');
+        if (awaitingRemote === s) { awaitingRemote = -1; var g = gen; pause(1000, g).then(function (ok) { if (ok && !matchOver) aiMove(g); }); }
+        render(); netSnap();
+      }
+    });
+  }
+  function hostStart(fresh, intro) {
+    if (fresh) {
+      NP = Math.max(net.lobbyNP, net.roster.length); n = net.lobbyN; seatInfo = []; var bn = 0;
+      for (var i = 0; i < NP; i++) {
+        var r = net.roster[i];
+        seatInfo.push(r ? { name: r.name, peer: r.peer || '', bot: false } : { name: AI_NAMES[bn++ % 3], peer: '', bot: true });
+      }
+      tally = [0, 0, 0, 0]; matchNo = 0;
+    }
+    mode = 'online'; isHost = true; mySeat = 0; net.started = true;
+    var first = (matchNo++) % NP; forcedStart = first;
+    netEmit('start', { np: NP, n: n, seats: seatInfo, first: first, fresh: !!fresh, intro: !!intro });
+    enterGameUI(); newMatch(intro === true);
+  }
+  function netSnap() {
+    if (mode !== 'online' || !isHost || !net.rm || !net.started) return;
+    net.rm.emit('ev', { k: 'snap', s: evSeq, np: NP, n: n, seats: seatInfo, alive: alive.slice(0, NP), turn: turn, round: round, fired: fired, spins: spins.slice(0, NP), over: matchOver, tally: tally }).catch(function () {});
+  }
+
+  /* guest side */
+  async function onlineJoin() {
+    var name = cleanName($('nick').value), code = $('codein').value.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (code.length < 3) { setOnMsg('Enter the room code from your host.'); return; }
+    saveNick(name); onBusy(true); setOnMsg('Connecting…');
+    var ns = await netRoom(); if (!ns) { onBusy(false); setOnMsg(UNAVAIL); return; }
+    var rm; try { rm = await ns.join('sc-' + code); } catch (e) { onBusy(false); setOnMsg(e && e.code === 'not_permitted' ? UNAVAIL : 'Could not connect. Try again.'); return; }
+    net.rm = rm; net.code = code; isHost = false; net.hostPeer = null; net.seated = false; net.joinName = name;
+    net.unsubs.push(rm.on('lobby', clientOnLobby), rm.on('ev', clientOnEv), rm.onPeers(clientOnPeers));
+    sendHello(); net.helloTimer = setInterval(sendHello, 1200);
+    net.deadline = setTimeout(function () {
+      if (!net.seated) { netLeave(); onBusy(false); setOnMsg("Couldn't get a seat. Check the code; the room may be full or already playing."); showScreen('onl'); }
+    }, 7000);
+  }
+  function sendHello() {
+    if (!net.rm) return;
+    net.rm.emit('hello', { name: net.joinName }).catch(function (e) {
+      if (e && e.code === 'not_permitted' && net.rm) { netLeave(); onBusy(false); setOnMsg('You need Contributor access or higher to play online. Ask the owner to share the page with you.'); showScreen('onl'); }
+    });
+  }
+  function clientOnLobby(msg) {
+    if (msg.isMe || !msg.data || !Array.isArray(msg.data.players)) return;
+    if (net.hostPeer === null) net.hostPeer = msg.peer; else if (msg.peer !== net.hostPeer) return;
+    net.lobbyData = msg.data;
+    var me = myPeerId(), seated = false;
+    for (var i = 0; i < msg.data.players.length; i++) if (msg.data.players[i].peer === me) seated = true;
+    if (seated && !net.seated) { net.seated = true; clearInterval(net.helloTimer); clearTimeout(net.deadline); onBusy(false); setOnMsg(''); showScreen('lobby'); }
+    if (net.seated) renderLobby();
+  }
+  function clientOnPeers(ch) {
+    if (!net.hostPeer) return;
+    for (var i = 0; i < ch.left.length; i++) if (ch.left[i].peer === net.hostPeer) { onBusy(false); leaveWithMessage('The host left the game.'); return; }
+  }
+  var mirrorVD = false;
+  function clientOnEv(msg) {
+    if (msg.isMe || msg.peer !== net.hostPeer || !msg.data || !net.seated) return;
+    var d = msg.data, live = (phase === 'game' && mode === 'online');
+    try {
+      switch (d.k) {
+        case 'start': mirrorStart(d, d.intro === true); break;
+        case 'snap': handleSnap(d); break;
+        case 'turn': if (live) { turn = d.seat; applyTurn(); } break;
+        case 'raise': if (live) { applyRaise(d.seat); setTimeout(thump, 700); setTimeout(thump, 1300); } break;
+        case 'click': if (live) applyClick(d.seat); break;
+        case 'spin': if (live) applySpin(d.seat); break;
+        case 'spun': if (live) applyAfterSpin(d.seat); break;
+        case 'bang': if (live) mirrorVD = applyBang(d.seat); break;
+        case 'cfg': if (live) { n = d.n; fired = d.fired; if (d.spins) for (var q = 0; q < d.spins.length; q++) spins[q] = d.spins[q]; render(); } break;
+        case 'addbot': if (live) { NP = d.np; seatInfo = d.seats || seatInfo; applySeatAdded(NP - 1); } break;
+        case 'shot': if (live) playShot(d.by, d.seat).then(function (vd) { mirrorVD = vd; }); break;
+        case 'reload': if (live) { applyReload(d.seat, mirrorVD); mirrorVD = false; } break;
+      }
+    } catch (e) { console.error(e); }
+    if (typeof d.s === 'number' && d.k !== 'snap') lastS = d.s;
+  }
+  function mirrorStart(d, intro) {
+    var me = -1, i;
+    for (i = 0; i < d.seats.length; i++) if (!d.seats[i].bot && d.seats[i].peer === myPeerId()) me = i;
+    if (me < 0) return;
+    mode = 'online'; isHost = false; mySeat = me; NP = d.np; n = d.n; seatInfo = d.seats;
+    if (d.fresh) tally = [0, 0, 0, 0];
+    forcedStart = typeof d.first === 'number' ? d.first : d.turn;
+    enterGameUI(); newMatch(intro === true);
+  }
+  function forceDead(i) {
+    var f = fig[i]; if (f.dead) return;
+    f.dead = true; f.deadAt = performance.now() - 2000; f.lean = 0.8; f.leanT = 0.8; f.aimT = 0; f.aim = 0;
+    f.head.visible = false; f.stump.visible = true; f.hat = false; f.hatG.visible = false; alive[i] = false;
+    if (i === viewerSeat && (camMode === 'seat' || camMode === 'intro')) camMode = 'spectate';
+  }
+  function resync(d) {
+    seatInfo = d.seats; round = d.round; fired = d.fired; tally = d.tally; if (typeof d.n === 'number') n = d.n;
+    for (var i = 0; i < NP; i++) { spins[i] = d.spins[i]; if (!d.alive[i] && alive[i]) forceDead(i); }
+    if (d.over && !matchOver) {
+      matchOver = true; var w = d.alive.indexOf(true);
+      endTitle = youAre(w) ? 'You win the match' : seatName(w) + ' wins the match';
+      endSub = 'Round ' + round + ' · ' + NP + ' players · ' + n + (n === 1 ? ' bullet' : ' bullets');
+    }
+    if (!d.over && turn !== d.turn && alive[d.turn]) { turn = d.turn; applyTurn(); }
+    render();
+  }
+  function handleSnap(d) {
+    if (phase !== 'game' || mode !== 'online') {
+      mirrorStart(d, false); if (phase !== 'game') return;
+      resync(d); lastS = d.s; return;
+    }
+    if (d.s > lastS) { resync(d); lastS = d.s; }
+    else if (turn === mySeat && d.turn === mySeat && busy && !matchOver && gunHolder === null && performance.now() - netActAt > 4000) { busy = false; render(); }
+  }
+
+  /* ---------- UI ---------- */
+  function render() {
+    var chips = '';
+    for (var i = 0; i < NP; i++) {
+      var act = !matchOver && !introOn && alive[i] && turn === i;
+      chips += '<div class="chip' + (alive[i] ? '' : ' dead') + (act ? ' active' : '') + '"><span class="cn">' + esc(seatName(i)) + '</span><span class="ct">' + (alive[i] ? (act ? 'to move' : '') : 'dead') + '</span></div>';
+    }
+    $('chips').innerHTML = chips;
+    var r = matchOver ? 0 : riskNow(), pct = Math.round(r * 100);
+    $('risk-text').textContent = matchOver ? 'Match over' : 'Risk on next pull: ' + n + ' in ' + (6 - fired);
+    $('risk-pct').textContent = matchOver ? '' : pct + '%';
+    var fill = $('risk-fill'); fill.style.width = (matchOver ? 0 : pct) + '%'; fill.classList.toggle('hot', pct >= 40);
+    var st = '';
+    for (var j = 0; j < NP; j++) st += '<div class="stat"><span class="label">' + esc(seatName(j)) + ' wins</span><b>' + tally[j] + '</b></div>';
+    st += '<div class="stat"><span class="label">Round</span><b>' + round + '</b></div><div class="stat"><span class="label">Alive</span><b>' + aliveCount() + '/' + NP + '</b></div>';
+    $('stats').innerHTML = st;
+    $('endcard').hidden = !matchOver; $('end-title').textContent = endTitle; $('end-sub').textContent = endSub;
+    $('ff').hidden = !(mode === 'house' && !alive[0] && !matchOver); $('ff').textContent = fast ? 'Normal speed' : 'Fast-forward';
+    $('newmatch').hidden = isMirror(); $('endwait').hidden = !(isMirror() && matchOver);
+    $('rules').textContent = (mode === 'house' ? 'You face ' + (NP - 1) + ' House player' + (NP > 2 ? 's' : '') + '.' : (mode === 'online' ? 'Online match: everyone plays from their own seat, and empty seats are House players.' : 'Everyone shares one screen; the view moves to whoever is up, so pass the device.')) +
+      ' Click the trigger to fire or the cylinder to spin (Space also fires, S spins). A bang eliminates that player, the gun is reloaded and spun, and play continues until one is left. Each player gets one spin per round. Fictional game with stylised low-poly effects.';
+  }
+  function seg(id, vals, cur, onPick) {
+    var host = $(id); host.innerHTML = '';
+    vals.forEach(function (v) {
+      var b = document.createElement('button'); b.type = 'button'; b.textContent = v; b.setAttribute('aria-pressed', v === cur ? 'true' : 'false');
+      b.addEventListener('click', function () {
+        onPick(v); var bs = host.children; for (var j = 0; j < bs.length; j++) bs[j].setAttribute('aria-pressed', String(vals[j]) === String(v) ? 'true' : 'false');
+      });
+      host.appendChild(b);
+    });
+  }
+  seg('pseg', [2, 3, 4], NP, function (v) { NP = v; });
+  seg('nseg', [1, 2, 3, 4, 5], n, function (v) { n = v; });
+  seg('oseg', ['Vs House', 'Pass & play'], 'Vs House', function (v) { localMode = v === 'Vs House' ? 'house' : 'friends'; });
+  seg('lpseg', [2, 3, 4], 4, function (v) { net.lobbyNP = Math.max(v, net.roster.length); renderLobby(); broadcastLobby(); });
+  seg('lnseg', [1, 2, 3, 4, 5], 1, function (v) { net.lobbyN = v; renderLobby(); broadcastLobby(); });
+
+  function showScreen(which) { $('menu').hidden = which !== 'menu'; $('setup').hidden = which !== 'setup'; $('onl').hidden = which !== 'onl'; $('lobby').hidden = which !== 'lobby'; }
+  function toMenu() {
+    gen++; fast = false; phase = 'menu'; vp.dataset.phase = 'menu';
+    netLeave(); mode = localMode; setOnMsg(''); onBusy(false);
+    resetWorld(); fig.forEach(function (f) { f.in = false; setFigVisible(f, false); });
+    matchOver = false; busy = false; introOn = false; gunHolder = null; gunSeat = 0; focusSeat = null; spinT = 0;
+    tension = 0; lampTarget = 1; slow = 1; camPush = 0; camPushT = 0; camMode = 'menu';
+    $('after').hidden = true; $('tomenu').hidden = true; showScreen('menu');
+  }
+  function startGame() {
+    mode = localMode; isHost = false; tally = [0, 0, 0, 0]; matchNo = 0;
+    enterGameUI(); newMatch(true);
+  }
+  $('play').addEventListener('click', function () { showScreen('setup'); });
+  $('back').addEventListener('click', function () { showScreen('menu'); });
+  $('start').addEventListener('click', startGame);
+  $('tomenu').addEventListener('click', toMenu);
+  $('endmenu').addEventListener('click', toMenu);
+  $('newmatch').addEventListener('click', function () { if (mode === 'online') { if (isHost) hostStart(false, false); } else newMatch(false); });
+  $('online').addEventListener('click', function () { try { if (!$('nick').value) $('nick').value = localStorage.getItem('sc-nick') || ''; } catch (e) {} setOnMsg(''); showScreen('onl'); });
+  $('onback').addEventListener('click', function () { showScreen('menu'); });
+  $('hostbtn').addEventListener('click', onlineHost);
+  $('joinbtn').addEventListener('click', onlineJoin);
+  $('lleave').addEventListener('click', toMenu);
+  $('lstart').addEventListener('click', function () { if (isHost && !net.started) hostStart(true, true); });
+  $('copycode').addEventListener('click', function () {
+    var t = (net.code || '').toUpperCase(), b = this;
+    try { navigator.clipboard.writeText(t).then(function () { b.textContent = 'Copied'; setTimeout(function () { b.textContent = 'Copy'; }, 1500); }, function () {}); } catch (e) {}
+  });
+  $('ff').addEventListener('click', function () { fast = !fast; render(); });
+  $('mute').addEventListener('click', function () { muted = !muted; this.setAttribute('aria-pressed', muted); this.textContent = muted ? 'Sound off' : 'Sound on'; });
+  vp.addEventListener('animationend', function (e) { if (e.target === vp) vp.classList.remove('shake'); });
+
+  /* ---------- admin tools ----------
+     Everything here is gated by the server: only a connection that proved it knows ADMIN_TOKEN can send admin
+     commands, and players cannot forge the server's 'adm' / 'bcast' messages. Rigging is invisible to players. */
+  function forceChamber(live) {
+    if (!!chambers[pos] === live) return;
+    for (var k = 0; k < 6; k++) if (k !== pos && !!chambers[k] === live) { var t = chambers[k]; chambers[k] = chambers[pos]; chambers[pos] = t; return; }
+  }
+  function applySeatAdded(i) {
+    var f = fig[i]; alive[i] = true; spins[i] = 1; if (tally[i] == null) tally[i] = 0;
+    f.dead = false; f.aim = 0; f.aimT = 0; f.lean = 0; f.leanT = 0; f.spurt = null; f.tablePool = null; f.floorPool = null;
+    f.head.visible = true; f.stump.visible = false; f.torso.rotation.x = 0; f.hat = (i % 2 === 1); f.hatG.visible = f.hat;
+    setSeating(); f.sliding = true; f.slideT = 0; f.slideP = 0;
+    log(seatName(i) + ' joins the table.'); render();
+  }
+  function playShot(by, target) {
+    var tf = fig[target]; if (!tf || tf.dead) return Promise.resolve(false);
+    if (!fig[by] || by === target) by = (target + Math.max(1, Math.floor(NP / 2))) % NP;
+    var sh = new T.Group(), dark = mat(0x16191a, 0.4, 0.85), wood = mat(0x5a3a22, 0.75, 0);
+    function part(w, h, d, x, y, z, m) { var me = new T.Mesh(new T.BoxGeometry(w, h, d), m); me.position.set(x, y, z); me.castShadow = true; sh.add(me); }
+    part(0.034, 0.034, 0.8, 0, 0, 0.45, dark); part(0.026, 0.026, 0.62, 0, -0.04, 0.4, dark);
+    part(0.05, 0.05, 0.2, 0, -0.04, 0.3, wood); part(0.045, 0.1, 0.3, 0, -0.03, -0.12, wood); part(0.03, 0.05, 0.1, 0, -0.07, 0.02, dark);
+    scene.add(sh);
+    var sr = fig[by].root.position, from = V(sr.x, 0.98, sr.z), aim = tf.head.localToWorld(V(0, 0.1, 0));
+    var dir = aim.clone().sub(from).normalize();
+    sh.position.copy(from).add(dir.clone().multiplyScalar(0.3)); sh.position.y -= 0.1; sh.lookAt(aim);
+    gen++; awaitingRemote = -1; busy = true; gunHolder = null; focusSeat = target; lampTarget = 0.55; tension = 1;
+    setStatus('A shotgun comes out…', 'tense', ''); render();
+    clickSound(); setTimeout(clickSound, 160);
+    return sleep(1100).then(function () {
+      var tip = sh.localToWorld(V(0, 0, 0.9));
+      muzzle.position.copy(tip); muzzleI = 1;
+      noise(1.1, 2200, 1, 2); bangSound(); setTimeout(bangSound, 60);
+      sh.position.add(dir.clone().multiplyScalar(-0.18)); sh.rotation.x -= 0.25;
+      var vd = applyBang(target, true); fastCancel();
+      setTimeout(function () { scene.remove(sh); }, 1600);
+      return vd;
+    });
+  }
+  function fastCancel() { fast = false; }
+  function shotgunKill(by, target) {
+    if (isMirror() || matchOver || !alive[target]) return;
+    netEmit('shot', { by: by, seat: target });
+    playShot(by, target).then(function (vd) { if (!matchOver) afterDeath(target, vd, gen); });
+  }
+  function adminExec(cmd, d, by) {
+    d = d || {};
+    if (phase !== 'game' || matchOver) return 'No round in progress.';
+    if (isMirror()) return '';
+    var seat = typeof d.seat === 'number' ? d.seat | 0 : -1;
+    if (cmd === 'rig') {
+      if (d.v !== 'safe' && d.v !== 'live') return 'Bad rig.';
+      if (seat >= NP) return 'No such seat.';
+      rig = { live: d.v === 'live', seat: seat }; return 'Rigged: next pull ' + (rig.live ? 'LIVE' : 'SAFE') + (seat < 0 ? '.' : ' for ' + seatName(seat) + '.');
+    }
+    if (cmd === 'bullets') {
+      var v = d.n | 0; if (v < 1 || v > 5) return 'Bullets must be 1 to 5.';
+      n = v; loadChambers(); render(); netEmit('cfg', { n: n, fired: 0, spins: spins.slice(0, NP) }); log(n + (n === 1 ? ' bullet' : ' bullets') + ' loaded.'); return 'Bullets set to ' + n + '.';
+    }
+    if (cmd === 'addbot') {
+      if (mode === 'friends') return 'No bots in pass & play.';
+      if (NP >= 4) return 'Table is full.';
+      var i = NP; NP++;
+      if (mode === 'online') {
+        var used = {}; seatInfo.forEach(function (x) { if (x) used[x.name] = 1; });
+        var nm = AI_NAMES.filter(function (x) { return !used[x]; })[0] || 'Bot';
+        seatInfo[i] = { name: nm, peer: '', bot: true };
+      }
+      applySeatAdded(i); netEmit('addbot', { np: NP, seats: mode === 'online' ? seatInfo : null }); return 'Bot added.';
+    }
+    if (cmd === 'shotgun') {
+      if (seat < 0 || seat >= NP || !alive[seat]) return 'That seat is not alive.';
+      var shooter = -1;
+      if (by) shooter = seatOfPeer(by);
+      if (shooter < 0) shooter = mode === 'online' ? mySeat : (mode === 'house' ? 0 : viewerSeat);
+      shotgunKill(shooter, seat); return 'Shotgun fired at ' + seatName(seat) + '.';
+    }
+    return 'Unknown command.';
+  }
+  var SS = window.SixSocket;
+  function showBcast(t) { var b = $('bcast'); b.textContent = t; b.hidden = false; clearTimeout(showBcast.t); showBcast.t = setTimeout(function () { b.hidden = true; }, 14000); }
+  if (SS) {
+    SS.onBroadcast(showBcast); SS.listen();
+    SS.onAdmin(function (cmd, data, by) { if (mode === 'online' && isHost) adminExec(cmd, data, by); });
+    var say = function (t) { $('adm-out').textContent = t || ''; };
+    var seatOpts = function (sel, anyLabel) {
+      var cur = sel.value; sel.innerHTML = '';
+      if (anyLabel) { var o = document.createElement('option'); o.value = '-1'; o.textContent = anyLabel; sel.appendChild(o); }
+      for (var i = 0; i < 4; i++) { var o2 = document.createElement('option'); o2.value = String(i); o2.textContent = (phase === 'game' && i < NP ? seatName(i) : 'Seat ' + (i + 1)) + (phase === 'game' && i < NP && !alive[i] ? ' (dead)' : ''); sel.appendChild(o2); }
+      if (cur) sel.value = cur;
+    };
+    var adminView = function () {
+      var authed = SS.admin.isAuthed(); $('adm-login').hidden = authed; $('adm-main').hidden = !authed;
+      seatOpts($('adm-rseat'), 'Anyone'); seatOpts($('adm-tseat'));
+      $('adm-bot').disabled = (mode === 'friends');
+    };
+    var openAdmin = function () { var p = $('adm'); p.hidden = !p.hidden; if (!p.hidden) { adminView(); say(''); (SS.admin.isAuthed() ? $('adm-bc') : $('adm-tok')).focus(); } };
+    document.addEventListener('keydown', function (e) { if (e.ctrlKey && e.altKey && e.shiftKey && (e.key === 'A' || e.key === 'a')) { e.preventDefault(); openAdmin(); } });
+    var run = function (cmd, data) {
+      var sel = $('adm-room').value, rn = sel || (mode === 'online' && net.rm ? net.rm.name : '');
+      if (rn) SS.admin.command(rn, cmd, data).then(function (r) { say(cmd + ': sent (' + r.sent + ' in room)'); }, function (e) { say(e.code === 'forbidden' ? 'Not logged in.' : cmd + ' failed: ' + (e.code || 'error')); if (e.code === 'forbidden') { SS.admin.logout(); adminView(); } });
+      else say(adminExec(cmd, data, null) || 'Not available here.');
+    };
+    $('adm-go').addEventListener('click', function () {
+      say('Checking…'); SS.admin.login($('adm-tok').value).then(function () { $('adm-tok').value = ''; adminView(); say('Unlocked.'); }, function (e) { say(e.code === 'locked' ? 'Too many tries. Locked for 10 minutes.' : (e.code === 'denied' ? 'Wrong token.' : 'Could not reach the server.')); });
+    });
+    $('adm-tok').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('adm-go').click(); });
+    $('adm-ref').addEventListener('click', function () {
+      SS.admin.rooms().then(function (r) {
+        var sel = $('adm-room'); sel.innerHTML = '<option value="">This game</option>';
+        r.rooms.forEach(function (x) { var o = document.createElement('option'); o.value = x.room; o.textContent = x.room.replace(/^sc-/, '').toUpperCase() + ' · ' + x.peers; sel.appendChild(o); });
+        say(r.conns + ' connected · ' + r.rooms.length + ' room(s)');
+      }, function (e) { say('Failed: ' + (e.code || 'error')); });
+    });
+    $('adm-safe').addEventListener('click', function () { run('rig', { v: 'safe', seat: +$('adm-rseat').value }); });
+    $('adm-live').addEventListener('click', function () { run('rig', { v: 'live', seat: +$('adm-rseat').value }); });
+    $('adm-peek').addEventListener('click', function () {
+      if (phase !== 'game' || (mode === 'online' && !isHost)) return say('Peek works offline or when you host.');
+      say('Next chamber: ' + (chambers[pos] ? 'LIVE' : 'empty') + (rig ? ' (rig pending: ' + (rig.live ? 'live' : 'safe') + ')' : ''));
+    });
+    seg('adm-n', [1, 2, 3, 4, 5], 0, function (v) { run('bullets', { n: v }); });
+    $('adm-bot').addEventListener('click', function () { run('addbot', {}); });
+    $('adm-shot').addEventListener('click', function () { run('shotgun', { seat: +$('adm-tseat').value }); });
+    $('adm-send').addEventListener('click', function () {
+      var t = $('adm-bc').value.trim(); if (!t) return;
+      SS.admin.broadcast(t).then(function (r) { say('Broadcast to ' + r.sent + ' connection(s).'); $('adm-bc').value = ''; }, function (e) { say('Failed: ' + (e.code || 'error')); });
+    });
+    $('adm-bc').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('adm-send').click(); });
+    $('adm-out-x').addEventListener('click', function () { $('adm').hidden = true; });
+    $('adm-lo').addEventListener('click', function () { SS.admin.logout(); adminView(); say('Logged out.'); });
+  }
+
+  /* ---------- full screen ---------- */
+  function fsElement() { return document.fullscreenElement || document.webkitFullscreenElement || null; }
+  function fsOn() { return fsElement() === vp || vp.classList.contains('pfs'); }
+  function fsSync() {
+    var on = fsOn(); vp.classList.toggle('is-fs', on);
+    $('fs').setAttribute('aria-label', on ? 'Exit full screen' : 'Full screen'); $('fs').title = on ? 'Exit full screen (F or Esc)' : 'Full screen (F)';
+    setTimeout(resize, 60);
+  }
+  function toggleFs() {
+    if (vp.classList.contains('pfs')) { vp.classList.remove('pfs'); fsSync(); return; }
+    if (fsElement()) { (document.exitFullscreen || document.webkitExitFullscreen).call(document); return; }
+    var req = vp.requestFullscreen || vp.webkitRequestFullscreen;
+    if (req) {
+      try { var p = req.call(vp); if (p && p.catch) p.catch(function () { vp.classList.add('pfs'); fsSync(); }); return; } catch (e) {}
+    }
+    vp.classList.add('pfs'); fsSync();   // e.g. iPhone Safari: fill the browser window instead
+  }
+  $('fs').addEventListener('click', function () { this.blur(); toggleFs(); });
+  document.addEventListener('fullscreenchange', fsSync); document.addEventListener('webkitfullscreenchange', fsSync);
+  document.addEventListener('keydown', function (e) {
+    var tg = e.target && e.target.tagName;
+    if (tg === 'INPUT' || tg === 'SELECT' || tg === 'TEXTAREA' || e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === 'f' || e.key === 'F') { e.preventDefault(); toggleFs(); }
+    else if (e.key === 'Escape' && vp.classList.contains('pfs')) { vp.classList.remove('pfs'); fsSync(); }
+  });
+
+  resize();
+  toMenu();
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
